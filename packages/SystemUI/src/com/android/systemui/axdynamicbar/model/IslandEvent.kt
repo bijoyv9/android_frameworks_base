@@ -192,6 +192,22 @@ sealed class IslandEvent(open val priority: Int, val id: String) : Comparable<Is
         override fun withoutDrawables() = copy(appIcon = null)
     }
 
+    data class Call(
+        val sbn: StatusBarNotification,
+        val title: String? = null,
+        val text: String? = null,
+        val appIcon: Drawable? = null,
+        val appName: String = "",
+        val actions: List<NotificationAction> = emptyList(),
+        val callerIcon: Drawable? = null,
+        val callerName: String? = null,
+        val startTimeMs: Long = 0L,
+        val isIncoming: Boolean = false,
+    ) : IslandEvent(priority = 76, id = "call_${sbn.key}") {
+        override val behavior = EventBehavior(autoDismissMs = null)
+        override fun withoutDrawables() = copy(appIcon = null, callerIcon = null)
+    }
+
     data class Timer(
         val label: String = "",
         val endTimeMs: Long = 0L,
@@ -297,7 +313,6 @@ sealed class IslandEvent(open val priority: Int, val id: String) : Comparable<Is
         val groupKey: String? = null,
         val isGroupSummary: Boolean = false,
         val notificationImage: Drawable? = null,
-        val callStartTimeMs: Long = 0L,
         val createdAt: Long = System.currentTimeMillis(),
     ) : IslandEvent(priority = NOTIFICATION_STALE_PRIORITY, id = "notification_${sbn.key}") {
         override val behavior = EventBehavior(autoDismissMs = null)
@@ -317,6 +332,7 @@ sealed class IslandEvent(open val priority: Int, val id: String) : Comparable<Is
                 MicCamActive::class.java,
                 AudioRecording::class.java,
                 Casting::class.java,
+                Call::class.java,
                 PromotedOngoing::class.java,
                 Sports::class.java,
                 Media::class.java,
@@ -335,4 +351,3 @@ enum class IslandState {
     HIDDEN,
     CHIP,
 }
-

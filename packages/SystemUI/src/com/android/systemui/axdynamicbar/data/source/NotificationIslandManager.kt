@@ -97,6 +97,9 @@ constructor(
     val notificationEvents: StateFlow<List<IslandEvent.Notification>> =
         _notificationEvents.asStateFlow()
 
+    private val _callEvent = MutableStateFlow<IslandEvent.Call?>(null)
+    val callEvent: StateFlow<IslandEvent.Call?> = _callEvent.asStateFlow()
+
     private val _audioRecordingEvent = MutableStateFlow<IslandEvent.AudioRecording?>(null)
     val audioRecordingEvent: StateFlow<IslandEvent.AudioRecording?> =
         _audioRecordingEvent.asStateFlow()
@@ -146,6 +149,7 @@ constructor(
             override fun onNotificationRemoved(sbn: StatusBarNotification) {
                 val pkg = sbn.packageName ?: return
                 seenNotificationKeys.remove(sbn.key)
+                if (_callEvent.value?.sbn?.key == sbn.key) setCallEvent(null)
 
                 if (sbn.key == timerNotificationKey) {
                     timerNotificationKey = null
@@ -232,14 +236,8 @@ constructor(
                 }
 
                 if (sbn.notification?.category == Notification.CATEGORY_CALL) {
-                    val isCallStyle =
-                        extras.containsKey(Notification.EXTRA_ANSWER_INTENT) ||
-                            extras.containsKey(Notification.EXTRA_DECLINE_INTENT) ||
-                            extras.containsKey(Notification.EXTRA_HANG_UP_INTENT)
-                    if (isCallStyle) {
-                        handleCallNotification(sbn, extras)
-                        return
-                    }
+                    if ("call" !in disabledTypes) handleCallNotification(sbn, extras)
+                    return
                 }
 
                 val allActions = sbn.notification?.actions ?: emptyArray()
@@ -533,6 +531,7 @@ constructor(
         _sportsEvents.value = emptyList()
         _nowPlayingEvent.value = null
         _audioRecordingEvent.value = null
+        setCallEvent(null)
         recorderPackage = null
         recorderNotifKey = null
         pauseStartMs = 0L
@@ -738,6 +737,10 @@ constructor(
             ""
         }
 
+    private fun setCallEvent(event: IslandEvent.Call?) {
+        _callEvent.value = event
+    }
+
     private fun handleCallNotification(sbn: StatusBarNotification, extras: Bundle) {
         val callerName = extras.getString("android.title")
         val number = extras.getString("android.text")
@@ -760,10 +763,7 @@ constructor(
             Notification.EXTRA_CALL_TYPE,
             Notification.CallStyle.CALL_TYPE_UNKNOWN,
         )
-        val callType =
-            if (androidCallType == Notification.CallStyle.CALL_TYPE_INCOMING)
-                "Phone:incoming"
-            else "Phone:active"
+        val isIncoming = androidCallType == Notification.CallStyle.CALL_TYPE_INCOMING
 
         val icon =
             try {
@@ -776,20 +776,23 @@ constructor(
         val callStart = if (callWhen > 0L) callWhen else System.currentTimeMillis()
 
         val event =
-            IslandEvent.Notification(
+            IslandEvent.Call(
                 sbn = sbn,
                 title = callerName,
                 text = number,
                 appIcon = icon,
-                appName = callType,
+                appName = resolveAppName(sbn.packageName),
                 actions = actions,
-                senderIcon = callerPhoto,
-                senderName = callerName,
-                isConversation = false,
-                callStartTimeMs = callStart,
+                callerIcon = callerPhoto,
+                callerName = callerName,
+                startTimeMs = callStart,
+                isIncoming = isIncoming,
             )
-        applicationScope.launch { notificationFlow.emit(event) }
-        onNotificationPosted?.invoke(event)
+        setCallEvent(event)
+    }
+
+    fun clearCall() {
+        setCallEvent(null)
     }
 
     private fun isPromotable(sbn: StatusBarNotification, extras: Bundle): Boolean {
@@ -1024,4 +1027,3 @@ constructor(
             }
     }
 }
-

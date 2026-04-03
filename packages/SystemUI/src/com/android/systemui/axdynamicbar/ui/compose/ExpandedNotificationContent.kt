@@ -110,7 +110,14 @@ internal fun NotificationExpanded(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SpaceLg),
         ) {
-            NotifExpandedAvatar(event, SizeCompactIcon)
+            NotifExpandedAvatar(
+                icon = event.senderIcon ?: event.appIcon,
+                isRound = event.isConversation && event.senderIcon != null,
+                badgeIcon = event.appIcon.takeIf {
+                    event.isConversation && event.senderIcon != null && event.appIcon != null
+                },
+                size = SizeCompactIcon,
+            )
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -247,13 +254,106 @@ internal fun NotificationExpanded(
 }
 
 @Composable
-private fun NotifExpandedAvatar(event: IslandEvent.Notification, size: Dp) {
-    val icon = event.senderIcon ?: event.appIcon
-    val isRound = event.isConversation && event.senderIcon != null
-    val hasBadge = event.isConversation && event.senderIcon != null && event.appIcon != null
+internal fun CallExpanded(
+    event: IslandEvent.Call,
+    interactor: IslandActions,
+) {
+    val context = LocalContext.current
+    val accent = BlueAccent
 
+    Column(
+        modifier = Modifier.fillMaxWidth().clickable {
+            interactor.launchCallDismissingKeyguard(event)
+            interactor.collapseIsland()
+        },
+        verticalArrangement = Arrangement.spacedBy(SpaceLg),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clip(ShapeLg)
+                .background(accent.copy(alpha = AlphaFaint))
+                .padding(SpaceLg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SpaceLg),
+        ) {
+            NotifExpandedAvatar(
+                icon = event.callerIcon ?: event.appIcon,
+                isRound = true,
+                badgeIcon = event.appIcon.takeIf { event.callerIcon != null && event.appIcon != null },
+                size = SizeCompactIcon,
+            )
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(SpaceXxs),
+            ) {
+                Text(
+                    if (event.isIncoming) stringResource(R.string.ax_dynamic_bar_incoming_call)
+                    else event.appName.ifEmpty { stringResource(R.string.ax_dynamic_bar_ongoing_call) },
+                    color = SubtleGray,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    event.callerName ?: event.title ?: stringResource(R.string.ax_dynamic_bar_ongoing_call),
+                    color = OnCardText,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            event.appIcon?.let {
+                Image(
+                    bitmap = it.toScaledBitmap(SizeIconSm),
+                    contentDescription = null,
+                    modifier = Modifier.size(SizeIconSm).clip(ShapeSm),
+                )
+            }
+        }
+
+        if (event.isIncoming) {
+            event.text?.let {
+                Text(it, color = SubtleGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+
+        if (event.actions.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(SpaceMd),
+            ) {
+                event.actions
+                    .take(2)
+                    .forEach { callAction ->
+                        ActionChip(
+                            label = callAction.label.toString(),
+                            color = OnActionText,
+                            bg = ActionBg,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                try { callAction.action.actionIntent?.sendWithBal(context) }
+                                catch (_: Exception) {}
+                                interactor.collapseIsland()
+                            },
+                        )
+                    }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotifExpandedAvatar(
+    icon: android.graphics.drawable.Drawable?,
+    isRound: Boolean,
+    badgeIcon: android.graphics.drawable.Drawable?,
+    size: Dp,
+) {
+    val hasBadge = badgeIcon != null
     when {
-        hasBadge && icon != null -> BadgedContactIcon(icon, event.appIcon!!, size, SpaceXxl, true)
+        hasBadge && icon != null -> BadgedContactIcon(icon, badgeIcon!!, size, SpaceXxl, true)
         icon != null -> Image(
             bitmap = icon.toScaledBitmap(size),
             contentDescription = null,
@@ -474,7 +574,14 @@ internal fun NotificationGroupCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SpaceLg),
         ) {
-            NotifExpandedAvatar(first, SizeCompactIcon)
+            NotifExpandedAvatar(
+                icon = first.senderIcon ?: first.appIcon,
+                isRound = first.isConversation && first.senderIcon != null,
+                badgeIcon = first.appIcon.takeIf {
+                    first.isConversation && first.senderIcon != null && first.appIcon != null
+                },
+                size = SizeCompactIcon,
+            )
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -577,7 +684,14 @@ private fun GroupedNotificationRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(SpaceLg),
             ) {
-                NotifExpandedAvatar(event, SpacePanel)
+                NotifExpandedAvatar(
+                    icon = event.senderIcon ?: event.appIcon,
+                    isRound = event.isConversation && event.senderIcon != null,
+                    badgeIcon = event.appIcon.takeIf {
+                        event.isConversation && event.senderIcon != null && event.appIcon != null
+                    },
+                    size = SpacePanel,
+                )
 
                 Column(
                     modifier = Modifier.weight(1f),
