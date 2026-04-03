@@ -53,6 +53,10 @@ import com.android.systemui.res.R
 import kotlin.math.abs
 
 private val EXPANDED_BOTTOM_PAD = 110.dp
+private enum class SingleCardGestureAxis {
+    Horizontal,
+    Vertical,
+}
 
 @Composable
 fun ExpandedIslandContent(
@@ -70,57 +74,82 @@ fun ExpandedIslandContent(
 
     if (singleMode && expandedFilter == null) {
         val singleEvent = events.find { it.id == pinnedEventId } ?: events.first()
+        val notificationId = (singleEvent as? IslandEvent.Notification)?.id
         val touchSlop = LocalViewConfiguration.current.touchSlop
+        LaunchedEffect(notificationId) { notificationId?.let(interactor::onNotificationInteraction) }
+        DisposableEffect(notificationId) {
+            onDispose { notificationId?.let(interactor::onNotificationInteractionEnd) }
+        }
         Box(
             modifier = Modifier
                 .widthIn(max = ExpandedMaxWidth)
                 .fillMaxWidth()
                 .padding(start = SpaceLg, end = SpaceLg, top = SpaceXxs, bottom = EXPANDED_BOTTOM_PAD)
-                .pointerInput(onCycleNext, onCyclePrev) {
+                .pointerInput(onCycleNext, onCyclePrev, onCollapse) {
                     awaitEachGesture {
                         val down = awaitFirstDown(pass = PointerEventPass.Initial)
                         val startX = down.position.x
+                        val startY = down.position.y
                         var totalDx = 0f
-                        var decided = false
+                        var totalDy = 0f
+                        var gestureAxis: SingleCardGestureAxis? = null
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val change = event.changes.firstOrNull() ?: break
                             if (!change.pressed) {
-                                if (decided && abs(totalDx) > touchSlop) {
-                                    change.consume()
-                                    if (totalDx > 0) onCyclePrev?.invoke()
-                                    else onCycleNext?.invoke()
+                                when (gestureAxis) {
+                                    SingleCardGestureAxis.Horizontal ->
+                                        if (abs(totalDx) > touchSlop) {
+                                            change.consume()
+                                            if (totalDx > 0) onCyclePrev?.invoke()
+                                            else onCycleNext?.invoke()
+                                        }
+                                    SingleCardGestureAxis.Vertical ->
+                                        if (totalDy < -touchSlop) {
+                                            change.consume()
+                                            onCollapse()
+                                        }
+                                    null -> Unit
                                 }
                                 break
                             }
                             val dx = change.position.x - startX
-                            if (!decided && abs(dx) > touchSlop) {
-                                decided = true
+                            val dy = change.position.y - startY
+                            if (gestureAxis == null && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                                gestureAxis =
+                                    if (abs(dx) >= abs(dy)) {
+                                        SingleCardGestureAxis.Horizontal
+                                    } else {
+                                        SingleCardGestureAxis.Vertical
+                                    }
                             }
-                            if (decided) {
-                                totalDx = dx
-                                change.consume()
+                            when (gestureAxis) {
+                                SingleCardGestureAxis.Horizontal -> {
+                                    totalDx = dx
+                                    change.consume()
+                                }
+                                SingleCardGestureAxis.Vertical -> {
+                                    totalDy = dy
+                                    if (dy < 0f) change.consume()
+                                }
+                                null -> Unit
                             }
                         }
                     }
                 },
         ) {
-            if (singleEvent is IslandEvent.Media) {
-                MediaCard(singleEvent, interactor)
-            } else {
-                PrimaryCard {
-                    AnimatedContent(
-                        targetState = singleEvent,
-                        transitionSpec = {
-                            ((fadeIn(tween(180)) + scaleIn(initialScale = 0.95f, animationSpec = tween(250))) togetherWith
-                                (fadeOut(tween(120)) + scaleOut(targetScale = 0.95f, animationSpec = tween(200)))).using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(280) }))
-                        },
-                        contentKey = { it::class.simpleName + it.id },
-                        label = "single_event_card",
-                    ) { animatedEvent ->
-                        ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
-                    }
-                }
+            AnimatedContent(
+                targetState = singleEvent,
+                transitionSpec = {
+                    ((fadeIn(tween(180)) + scaleIn(initialScale = 0.95f, animationSpec = tween(250))) togetherWith
+                        (fadeOut(tween(120)) + scaleOut(targetScale = 0.95f, animationSpec = tween(200)))).using(
+                        SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(280) })
+                    )
+                },
+                contentKey = { it::class.simpleName + it.id },
+                label = "single_event_card",
+            ) { animatedEvent ->
+                ExpandedEventCard(animatedEvent, interactor, hapticsViewModelFactory)
             }
         }
         return
@@ -222,32 +251,41 @@ fun ExpandedIslandContent(
                     onDismiss = { interactor.dismissEvent(event) },
                     modifier = Modifier.animateItem(),
                 ) {
-                    if (event is IslandEvent.Media) {
-                        MediaCard(event, interactor)
-                    } else {
-                        PrimaryCard {
-                            AnimatedContent(
-                                targetState = event,
-                                transitionSpec = {
-                                    ((fadeIn(tween(180)) +
-                                        scaleIn(
-                                            initialScale = 0.95f,
-                                            animationSpec = tween(250),
-                                        )) togetherWith
-                                        (fadeOut(tween(120)) +
-                                            scaleOut(
-                                                targetScale = 0.95f,
-                                                animationSpec = tween(200),
-                                            ))).using(sizeTransform = null)
-                                },
-                                contentKey = { it::class.simpleName + it.id },
-                                label = "expanded_card",
-                            ) { animatedEvent ->
-                                ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
-                            }
-                        }
-                    }
+                    ExpandedEventCard(event, interactor, hapticsViewModelFactory)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpandedEventCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+) {
+    if (event is IslandEvent.Media) {
+        MediaCard(event, interactor)
+    } else {
+        PrimaryCard {
+            AnimatedContent(
+                targetState = event,
+                transitionSpec = {
+                    ((fadeIn(tween(180)) +
+                        scaleIn(
+                            initialScale = 0.95f,
+                            animationSpec = tween(250),
+                        )) togetherWith
+                        (fadeOut(tween(120)) +
+                            scaleOut(
+                                targetScale = 0.95f,
+                                animationSpec = tween(200),
+                            ))).using(sizeTransform = null)
+                },
+                contentKey = { it::class.simpleName + it.id },
+                label = "expanded_card",
+            ) { animatedEvent ->
+                ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
             }
         }
     }
@@ -310,4 +348,3 @@ internal fun PrimaryCard(content: @Composable () -> Unit) {
         content()
     }
 }
-

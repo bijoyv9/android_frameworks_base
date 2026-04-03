@@ -28,6 +28,11 @@ class AxDynamicBarSettings @Inject constructor(
         const val KEY_KEYGUARD_ENABLED = "ax_dynamic_bar_keyguard_enabled"
         const val KEY_COMPACT_NOTIFICATIONS = "ax_dynamic_bar_compact_notifications"
         const val KEY_CHIP_POSITION = "ax_dynamic_bar_chip_position"
+
+        /** Chip appears at the left of the status bar (default). */
+        const val CHIP_POSITION_START = 0
+        /** Chip appears centered in the status bar. */
+        const val CHIP_POSITION_CENTER = 1
     }
 
     private val _isEnabled = MutableStateFlow(false)
@@ -113,8 +118,8 @@ class AxDynamicBarSettings @Inject constructor(
         _compactNotifications.value =
             secureSettings.getIntForUser(KEY_COMPACT_NOTIFICATIONS, 1, UserHandle.USER_CURRENT) == 1
         _chipPosition.value =
-            secureSettings.getIntForUser(KEY_CHIP_POSITION, 0, UserHandle.USER_CURRENT)
-                .coerceIn(0, 1)
+            secureSettings.getIntForUser(KEY_CHIP_POSITION, CHIP_POSITION_START, UserHandle.USER_CURRENT)
+                .coerceIn(CHIP_POSITION_START, CHIP_POSITION_CENTER)
         _isHeadsUpEnabled.value =
             globalSettings.getInt(Global.HEADS_UP_NOTIFICATIONS_ENABLED, 1) == 1
 

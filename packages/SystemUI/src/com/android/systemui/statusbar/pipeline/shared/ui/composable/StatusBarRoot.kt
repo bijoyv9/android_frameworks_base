@@ -81,6 +81,7 @@ import com.android.systemui.res.R
 import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.shade.ui.composable.VariableDayDate
 import com.android.systemui.statusbar.StatusBarAlwaysUseRegionSampling
+import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings
 import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.axdynamicbar.ui.compose.AxDynamicBarChip
 import com.android.systemui.statusbar.chips.ui.compose.OngoingActivityChips
@@ -499,7 +500,7 @@ private fun addStartSideComposable(
 
                 val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
                 val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
-                if (axEnabled && axPosition == 0) {
+                if (axEnabled && axPosition == AxDynamicBarSettings.CHIP_POSITION_START) {
                     AxDynamicBarChip(
                         viewModel = axDynamicBarChipViewModel,
                         modifier = Modifier.widthIn(max = chipsMaxWidth),
@@ -617,6 +618,9 @@ private fun addDynamicBarCenterSpacer(
         phoneStatusBarView.requireViewById<LinearLayout>(R.id.status_bar_start_side_except_heads_up)
     val notificationIconArea = startSideExceptHeadsUp.requireViewById<View>(R.id.notification_icon_area)
     val spacerIndex = startSideExceptHeadsUp.indexOfChild(notificationIconArea) + 1
+    check(spacerIndex > 0) {
+        "notification_icon_area is not a direct child of status_bar_start_side_except_heads_up"
+    }
     val composeView =
         ComposeView(context).apply {
             layoutParams =
@@ -630,8 +634,8 @@ private fun addDynamicBarCenterSpacer(
                 val chipWidthPx by axDynamicBarChipViewModel.chipWidthPx.collectAsState()
                 val reserveWidth =
                     with(LocalDensity.current) {
-                        if (axEnabled && axPosition == 1) {
-                            (chipWidthPx / 2f).toDp() + 8.dp
+                        if (axEnabled && axPosition == AxDynamicBarSettings.CHIP_POSITION_CENTER) {
+                            (chipWidthPx / 2f).toDp() + CHIP_CENTER_SPACER_PAD
                         } else {
                             0.dp
                         }
@@ -671,7 +675,7 @@ private fun addDynamicBarToCenter(
                     ) {
                         val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
                         val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
-                        if (axEnabled && axPosition == 1) {
+                        if (axEnabled && axPosition == AxDynamicBarSettings.CHIP_POSITION_CENTER) {
                             AxDynamicBarChip(viewModel = axDynamicBarChipViewModel)
                         }
                     }
@@ -808,3 +812,6 @@ private fun rememberViewWidthAsState(view: View): MutableIntState {
     }
     return viewWidth
 }
+
+/** Extra padding added to the start-side spacer so the centered chip doesn't butt up against icons. */
+private val CHIP_CENTER_SPACER_PAD = 8.dp

@@ -97,6 +97,32 @@ private fun SbnContentView(sbn: StatusBarNotification, fallback: @Composable () 
                         }
                     }
                 },
+                update = { container ->
+                    // Reapply updated RemoteViews (e.g. download progress) without
+                    // re-inflating the entire view hierarchy.
+                    try {
+                        val rv = resolveRemoteViews(container.context, sbn.notification)
+                        val existingChild = container.getChildAt(0)
+                        when {
+                            rv != null && existingChild != null -> {
+                                rv.reapply(container.context, existingChild)
+                                prepareForIsland(existingChild)
+                            }
+                            rv != null -> {
+                                container.removeAllViews()
+                                val inflated = rv.apply(container.context, container)
+                                prepareForIsland(inflated)
+                                container.addView(
+                                    inflated,
+                                    FrameLayout.LayoutParams(
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                                    ),
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {}
+                },
                 modifier = Modifier.fillMaxWidth().clip(ShapeIconMedium),
             )
         }
