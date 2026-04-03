@@ -96,8 +96,6 @@ private val ActionIconSize = SizeBadge
 private val ActionIconSizeCompact = SpaceLg
 private val BatteryIconSize = ChipHeight - SpaceXxl
 private val BatteryIconSizeCompact = ChipHeightCompact - SpaceXxl
-private val CountBadgeHeight = ChipHeight / 2
-private val CountBadgeHeightCompact = ChipHeightCompact / 2
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -238,6 +236,7 @@ fun AxDynamicBarKeyguardChip(
                         contentColor = contentColor,
                         progress = progress,
                         eventCount = chipState.eventCount,
+                        pinnedIndex = chipState.pinnedIndex,
                         viewModel = viewModel,
                         compact = isCompact,
                     )
@@ -257,6 +256,7 @@ private fun KeyguardChipBody(
     contentColor: Color,
     progress: Float?,
     eventCount: Int,
+    pinnedIndex: Int,
     viewModel: AxDynamicBarChipViewModel,
     compact: Boolean,
 ) {
@@ -265,7 +265,6 @@ private fun KeyguardChipBody(
     val iconSize = if (compact) ChipIconSizeCompact else ChipIconSize
     val actSize = if (compact) ActionSizeCompact else ActionSize
     val actIconSize = if (compact) ActionIconSizeCompact else ActionIconSize
-    val badgeHeight = if (compact) CountBadgeHeightCompact else CountBadgeHeight
     val textStyle = if (compact) MaterialTheme.typography.labelSmall else PillPrimary
     val maxWidth = if (compact) 220.dp else 260.dp
     val startPad = if (compact) SpaceXs else SpaceSm
@@ -418,21 +417,11 @@ private fun KeyguardChipBody(
 
             if (eventCount > 1) {
                 Spacer(Modifier.width(SpaceXs))
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .height(badgeHeight)
-                        .widthIn(min = badgeHeight)
-                        .background(lerp(accent, contentColor, AlphaDisabled), ShapeChip)
-                        .padding(horizontal = SpaceXxs),
-                ) {
-                    Text(
-                        "$eventCount",
-                        style = TsBadge,
-                        color = contentColor,
-                        maxLines = 1,
-                    )
-                }
+                AxDynamicBarEventIndicator(
+                    count = eventCount,
+                    activeIndex = pinnedIndex,
+                    color = contentColor,
+                )
             }
         }
     }
@@ -866,4 +855,3 @@ private fun StopwatchTimeText(event: IslandEvent.Stopwatch, color: Color, modifi
         Text(formatStopwatch(elapsedMs), color = color, style = PillMono, modifier = modifier)
     }
 }
-

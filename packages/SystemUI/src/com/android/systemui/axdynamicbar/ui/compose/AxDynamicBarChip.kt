@@ -64,11 +64,9 @@ import com.android.systemui.axdynamicbar.shared.AlphaTertiary
 import com.android.systemui.axdynamicbar.shared.PillPrimary
 import com.android.systemui.axdynamicbar.shared.ShapeXl
 import com.android.systemui.axdynamicbar.shared.ShapeXs
-import com.android.systemui.axdynamicbar.shared.SizeBadge
 import com.android.systemui.axdynamicbar.shared.SpaceMd
 import com.android.systemui.axdynamicbar.shared.SpaceSm
 import com.android.systemui.axdynamicbar.shared.SpaceXs
-import com.android.systemui.axdynamicbar.shared.TsBadge
 import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
 import com.android.systemui.axdynamicbar.shared.chipContentColorOn
 import com.android.systemui.axdynamicbar.shared.chipProgressFor
@@ -342,24 +340,11 @@ fun AxDynamicBarChip(
                             }
                             if (chipState.eventCount > 1) {
                                 Spacer(Modifier.width(SpaceXs))
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .height(SizeBadge)
-                                        .widthIn(min = SizeBadge)
-                                        .background(
-                                            lerp(accent, contentColor, 0.3f),
-                                            RoundedCornerShape(SizeBadge / 2),
-                                        )
-                                        .padding(horizontal = 3.dp),
-                                ) {
-                                    Text(
-                                        text = "${chipState.eventCount}",
-                                        style = TsBadge,
-                                        color = contentColor,
-                                        maxLines = 1,
-                                    )
-                                }
+                                AxDynamicBarEventIndicator(
+                                    count = chipState.eventCount,
+                                    activeIndex = chipState.pinnedIndex,
+                                    color = contentColor,
+                                )
                             }
                         }
                     }
