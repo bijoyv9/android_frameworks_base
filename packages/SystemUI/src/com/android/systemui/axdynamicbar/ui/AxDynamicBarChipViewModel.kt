@@ -129,6 +129,10 @@ constructor(
 
     private val _isExpanded = MutableStateFlow(false)
     val isExpanded: StateFlow<Boolean> = _isExpanded.asStateFlow()
+
+    private val _isSingleMode = MutableStateFlow(false)
+    val isSingleMode: StateFlow<Boolean> = _isSingleMode.asStateFlow()
+
     @Volatile private var collapseOnNullJob: Job? = null
 
     val isKeyguardExpanded: StateFlow<Boolean> =
@@ -170,12 +174,30 @@ constructor(
         if (chipState.value != null) _isExpanded.value = true
     }
 
+    /** Tap: expand showing only the currently-pinned event. */
+    fun expandSingle() {
+        if (chipState.value != null) {
+            _isSingleMode.value = true
+            _isExpanded.value = true
+        }
+    }
+
+    /** Long-press: expand showing all events stacked (original behaviour). */
+    fun expandAll() {
+        if (chipState.value != null) {
+            _isSingleMode.value = false
+            _isExpanded.value = true
+        }
+    }
+
     fun collapsePanel() {
         _isExpanded.value = false
+        // Keep _isSingleMode unchanged so the exit animation renders the same view,
+        // preventing a flash of the stacked-cards layout during the fade-out.
     }
 
     fun togglePanel() {
-        if (_isExpanded.value) collapsePanel() else expandPanel()
+        if (_isExpanded.value) collapsePanel() else expandSingle()
     }
 
     fun cycleNext() = interactor.cycleNext()

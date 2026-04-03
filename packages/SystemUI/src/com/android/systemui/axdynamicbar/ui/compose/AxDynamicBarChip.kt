@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +74,8 @@ import com.android.systemui.axdynamicbar.shared.toScaledBitmap
 import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.res.R
 import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val ChipShape = ShapeXl
 private val ChipHeight = 24.dp
@@ -94,6 +97,8 @@ fun AxDynamicBarChip(
     }
 
     val touchSlop = LocalViewConfiguration.current.touchSlop
+    val longPressTimeoutMs = LocalViewConfiguration.current.longPressTimeoutMillis
+    val scope = rememberCoroutineScope()
 
     val motionScheme = MaterialTheme.motionScheme
 
@@ -102,43 +107,52 @@ fun AxDynamicBarChip(
         enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec()),
         exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
         modifier = modifier
-            .pointerInput(viewModel) {
+            .pointerInput(viewModel, longPressTimeoutMs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                    
+
                     val startX = down.position.x
                     val startY = down.position.y
                     var dragging = false
                     var totalDx = 0f
-                    var decided = false 
+                    var decided = false
+                    var longPressTriggered = false
+
+                    // After timeout, expand showing ALL events (long-press behaviour)
+                    val longPressJob = scope.launch {
+                        delay(longPressTimeoutMs)
+                        longPressTriggered = true
+                        viewModel.expandAll()
+                    }
+
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
                         val change = event.changes.firstOrNull() ?: break
                         if (!change.pressed) {
-                            
-                            if (dragging) {
-                                change.consume()
-                                if (totalDx > 0) viewModel.cyclePrev()
-                                else viewModel.cycleNext()
-                            } else if (!decided) {
-                                
-                                change.consume()
-                                viewModel.togglePanel()
+                            longPressJob.cancel()
+                            if (!longPressTriggered) {
+                                if (dragging) {
+                                    change.consume()
+                                    if (totalDx > 0) viewModel.cyclePrev()
+                                    else viewModel.cycleNext()
+                                } else if (!decided) {
+                                    // Tap → toggle panel (expand or collapse)
+                                    change.consume()
+                                    viewModel.togglePanel()
+                                }
                             }
-                            
                             break
                         }
                         val dx = change.position.x - startX
                         val dy = change.position.y - startY
                         if (!decided && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                            longPressJob.cancel()
                             if (abs(dx) >= abs(dy)) {
-                                
                                 decided = true
                                 dragging = true
                                 totalDx = dx
                                 change.consume()
                             } else {
-                                
                                 decided = true
                                 break
                             }
@@ -147,6 +161,7 @@ fun AxDynamicBarChip(
                             change.consume()
                         }
                     }
+                    longPressJob.cancel()
                 }
             }
             .onGloballyPositioned { coords ->

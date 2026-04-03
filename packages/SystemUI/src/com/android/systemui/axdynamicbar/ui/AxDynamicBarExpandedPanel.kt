@@ -249,6 +249,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     } else 0.dp
     val chipState by viewModel.chipState.collectAsStateWithLifecycle()
     val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
+    val isSingleMode by viewModel.isSingleMode.collectAsStateWithLifecycle()
     val uiState by viewModel.interactor.uiState.collectAsStateWithLifecycle()
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
     val chipX by viewModel.chipCenterXFraction.collectAsStateWithLifecycle()
@@ -333,6 +334,9 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                     interactor = viewModel.interactor,
                     onCollapse = { viewModel.collapsePanel() },
                     pinnedEventId = state.event.id,
+                    singleMode = isSingleMode,
+                    onCycleNext = { viewModel.cycleNext() },
+                    onCyclePrev = { viewModel.cyclePrev() },
                     hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
                 )
             }
@@ -393,4 +397,3 @@ private class PanelLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.handleLifecycleEvent(event)
     }
 }
-

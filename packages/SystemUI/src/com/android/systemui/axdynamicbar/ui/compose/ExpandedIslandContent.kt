@@ -1,6 +1,7 @@
 package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -9,6 +10,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +39,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.android.systemui.axdynamicbar.shared.IslandActions
@@ -44,6 +50,7 @@ import kotlinx.coroutines.delay
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.axdynamicbar.shared.*
 import com.android.systemui.res.R
+import kotlin.math.abs
 
 private val EXPANDED_BOTTOM_PAD = 110.dp
 
@@ -54,9 +61,70 @@ fun ExpandedIslandContent(
     onCollapse: () -> Unit,
     expandedFilter: String? = null,
     pinnedEventId: String? = null,
+    singleMode: Boolean = false,
+    onCycleNext: (() -> Unit)? = null,
+    onCyclePrev: (() -> Unit)? = null,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
 ) {
     if (events.isEmpty()) return
+
+    if (singleMode && expandedFilter == null) {
+        val singleEvent = events.find { it.id == pinnedEventId } ?: events.first()
+        val touchSlop = LocalViewConfiguration.current.touchSlop
+        Box(
+            modifier = Modifier
+                .widthIn(max = ExpandedMaxWidth)
+                .fillMaxWidth()
+                .padding(start = SpaceLg, end = SpaceLg, top = SpaceXxs, bottom = EXPANDED_BOTTOM_PAD)
+                .pointerInput(onCycleNext, onCyclePrev) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                        val startX = down.position.x
+                        var totalDx = 0f
+                        var decided = false
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
+                                if (decided && abs(totalDx) > touchSlop) {
+                                    change.consume()
+                                    if (totalDx > 0) onCyclePrev?.invoke()
+                                    else onCycleNext?.invoke()
+                                }
+                                break
+                            }
+                            val dx = change.position.x - startX
+                            if (!decided && abs(dx) > touchSlop) {
+                                decided = true
+                            }
+                            if (decided) {
+                                totalDx = dx
+                                change.consume()
+                            }
+                        }
+                    }
+                },
+        ) {
+            if (singleEvent is IslandEvent.Media) {
+                MediaCard(singleEvent, interactor)
+            } else {
+                PrimaryCard {
+                    AnimatedContent(
+                        targetState = singleEvent,
+                        transitionSpec = {
+                            ((fadeIn(tween(180)) + scaleIn(initialScale = 0.95f, animationSpec = tween(250))) togetherWith
+                                (fadeOut(tween(120)) + scaleOut(targetScale = 0.95f, animationSpec = tween(200)))).using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(280) }))
+                        },
+                        contentKey = { it::class.simpleName + it.id },
+                        label = "single_event_card",
+                    ) { animatedEvent ->
+                        ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
+                    }
+                }
+            }
+        }
+        return
+    }
 
     val filteredEvents =
         remember(events, expandedFilter, pinnedEventId) {

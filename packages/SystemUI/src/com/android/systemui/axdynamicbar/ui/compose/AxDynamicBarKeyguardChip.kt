@@ -176,6 +176,9 @@ fun AxDynamicBarKeyguardChip(
                                     change.consume()
                                     if (totalDx > 0) viewModel.cyclePrev()
                                     else viewModel.cycleNext()
+                                } else {
+                                    change.consume()
+                                    viewModel.togglePanel()
                                 }
                                 break
                             }
