@@ -1,12 +1,15 @@
 package com.android.systemui.axdynamicbar.ui
 
+import android.content.Context
 import android.os.SystemProperties
 import com.android.systemui.axdynamicbar.domain.AxDynamicBarInteractor
+import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.biometrics.AuthController
 import com.android.systemui.biometrics.domain.interactor.UdfpsOverlayInteractor
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
+import com.android.systemui.res.R
 import com.android.systemui.statusbar.pipeline.battery.domain.interactor.BatteryInteractor
 import com.android.systemui.statusbar.policy.BatteryController
 import javax.inject.Inject
@@ -47,6 +50,7 @@ class AxDynamicBarChipViewModel
 @Inject
 constructor(
     @Application private val applicationScope: CoroutineScope,
+    @Application private val context: Context,
     val interactor: AxDynamicBarInteractor,
     batteryInteractor: BatteryInteractor,
     private val batteryController: BatteryController,
@@ -133,6 +137,47 @@ constructor(
     fun updateChipWidth(widthPx: Float) {
         _chipWidthPx.value = widthPx
     }
+
+    private val _clockBoundsRight = MutableStateFlow(0)
+
+    fun updateClockBoundsRight(px: Int) {
+        _clockBoundsRight.value = px
+    }
+
+    /**
+     * Maximum number of notification icons that should be shown in the status bar start side.
+     * Only restricts icons when the chip is in center mode; otherwise unbounded.
+     *
+     * Derived by measuring the actual pixel gap between the clock's right edge and the chip's
+     * left edge, then fitting as many icon slots as possible. Works correctly for all screen
+     * sizes — tablets naturally get more icons, phones with wide chips or seconds-enabled
+     * clocks naturally get fewer.
+     */
+    val notifIconLimit: StateFlow<Int> = combine(
+        interactor.settings.isEnabled,
+        interactor.settings.chipPosition,
+        _chipWidthPx,
+        _chipCenterXFraction,
+        _clockBoundsRight,
+        chipState,
+    ) { args ->
+        val enabled = args[0] as Boolean
+        val position = args[1] as Int
+        val widthPx = args[2] as Float
+        val centerFraction = args[3] as Float
+        val clockRight = args[4] as Int
+        val chip = args[5] as AxDynamicBarChipState?
+        if (!enabled || chip == null || position != AxDynamicBarSettings.CHIP_POSITION_CENTER || clockRight == 0) {
+            return@combine Int.MAX_VALUE
+        }
+        val screenWidthPx = context.resources.displayMetrics.widthPixels.toFloat()
+        val chipLeftEdgePx = centerFraction * screenWidthPx - widthPx / 2f
+        val iconSlotPx = context.resources.getDimensionPixelSize(R.dimen.status_bar_icon_size_sp).toFloat()
+        // Reserve one extra icon-slot as a safety gap so icons never sit flush against the chip.
+        val safetyPx = iconSlotPx
+        val availablePx = (chipLeftEdgePx - clockRight - safetyPx).coerceAtLeast(0f)
+        (availablePx / iconSlotPx).toInt()
+    }.stateIn(applicationScope, SharingStarted.Eagerly, Int.MAX_VALUE)
 
     private val _isExpanded = MutableStateFlow(false)
     val isExpanded: StateFlow<Boolean> = _isExpanded.asStateFlow()
