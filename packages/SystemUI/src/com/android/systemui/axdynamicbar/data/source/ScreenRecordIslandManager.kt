@@ -31,6 +31,8 @@ constructor(
 
     @Volatile
     private var notificationStartTimeMs: Long = 0L
+    @Volatile
+    private var stopRequested = false
 
     private var listening = false
     private var listenerJob: Job? = null
@@ -45,6 +47,7 @@ constructor(
                     _screenRecordEvent.value =
                         when (state) {
                             is ScreenRecordChipModel.Recording -> {
+                                if (stopRequested) return@collect
                                 val notifMs = notificationStartTimeMs
                                 val existing = _screenRecordEvent.value
                                 val startMs = when {
@@ -58,12 +61,17 @@ constructor(
                                     IslandEvent.ScreenRecording(startTimeMs = startMs)
                                 }
                             }
-                            is ScreenRecordChipModel.Starting ->
+                            is ScreenRecordChipModel.Starting -> {
+                                if (stopRequested) return@collect
                                 IslandEvent.ScreenRecording(
                                     countdownSeconds =
                                         state.millisUntilStarted.toCountdownSeconds(),
                                 )
-                            is ScreenRecordChipModel.DoingNothing -> null
+                            }
+                            is ScreenRecordChipModel.DoingNothing -> {
+                                stopRequested = false
+                                null
+                            }
                         }
                 }
             }
@@ -76,9 +84,12 @@ constructor(
         listenerJob = null
         _screenRecordEvent.value = null
         notificationStartTimeMs = 0L
+        stopRequested = false
     }
 
     fun stopRecording() {
+        stopRequested = true
+        _screenRecordEvent.value = null
         applicationScope.launch { screenRecordChipInteractor.stopRecording() }
     }
 

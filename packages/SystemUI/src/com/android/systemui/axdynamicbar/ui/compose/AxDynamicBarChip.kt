@@ -2,9 +2,9 @@ package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.animation.fadeIn
@@ -29,10 +29,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,7 +45,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -67,6 +64,7 @@ import com.android.systemui.axdynamicbar.shared.ShapeXs
 import com.android.systemui.axdynamicbar.shared.SpaceMd
 import com.android.systemui.axdynamicbar.shared.SpaceSm
 import com.android.systemui.axdynamicbar.shared.SpaceXs
+import com.android.systemui.axdynamicbar.shared.TsBadge
 import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
 import com.android.systemui.axdynamicbar.shared.chipContentColorOn
 import com.android.systemui.axdynamicbar.shared.chipProgressFor
@@ -182,19 +180,14 @@ fun AxDynamicBarChip(
             AnimatedContent(
                 targetState = ChipDisplay(displayEvent, isAlert),
                 transitionSpec = {
-                    ((fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.92f, animationSpec = motionScheme.defaultSpatialSpec())) togetherWith
-                        (fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.92f, animationSpec = motionScheme.fastSpatialSpec()))).using(
-                        sizeTransform = null
+                    (fadeIn(motionScheme.defaultEffectsSpec()) togetherWith
+                        fadeOut(motionScheme.fastEffectsSpec())).using(
+                        SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> motionScheme.defaultSpatialSpec() })
                     )
                 },
-                contentKey = { if (it.isAlert) "alert" else it.event::class.simpleName },
+                contentKey = { chipDisplayKey(it) },
                 label = "chip_event",
             ) { display ->
-                var targetWidthPx by remember { mutableIntStateOf(0) }
-                val animatedWidthPx by animateIntAsState(
-                    targetWidthPx, MaterialTheme.motionScheme.defaultSpatialSpec(), label = "chip_w",
-                )
-
                 val rawAccent = chipAccentColorFor(display.event)
                 val accent by animateColorAsState(rawAccent, MaterialTheme.motionScheme.fastEffectsSpec(), label = "accent")
                 val contentColor by animateColorAsState(
@@ -214,12 +207,6 @@ fun AxDynamicBarChip(
                     Row(
                         modifier =
                             Modifier.height(ChipHeight)
-                                .layout { measurable, constraints ->
-                                    val placeable = measurable.measure(constraints)
-                                    if (targetWidthPx != placeable.width) targetWidthPx = placeable.width
-                                    val w = if (animatedWidthPx > 0) animatedWidthPx else placeable.width
-                                    layout(w, placeable.height) { placeable.placeRelative(0, 0) }
-                                }
                                 .clip(ChipShape)
                                 .background(accent)
                                 .then(
@@ -380,3 +367,21 @@ private fun StatusBarSportsTeamBadge(name: String, icon: Drawable?, contentColor
 }
 
 private data class ChipDisplay(val event: IslandEvent, val isAlert: Boolean)
+
+private fun chipDisplayKey(display: ChipDisplay): Any {
+    if (display.isAlert) {
+        val notification = display.event as? IslandEvent.Notification
+        return "alert:${notification?.sbn?.key ?: display.event.id}"
+    }
+
+    val event = display.event
+    return when (event) {
+        is IslandEvent.Media ->
+            "media:${event.track}|${event.artist}|${iconKeyFor(event)}"
+        is IslandEvent.AudioRecording ->
+            "audio_recording:${event.state}:${event.appName}"
+        is IslandEvent.Call ->
+            "call:${event.sbn.key}:${iconKeyFor(event)}"
+        else -> "${event.id}:${textKeyFor(event)}:${iconKeyFor(event)}"
+    }
+}

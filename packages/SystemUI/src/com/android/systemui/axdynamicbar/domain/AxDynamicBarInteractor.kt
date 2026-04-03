@@ -458,7 +458,11 @@ constructor(
         }
 
         notifAlertJob?.cancel()
-        _uiState.value = current.copy(notificationAlert = notification)
+        _uiState.value = current.copy(
+            notificationAlert = notification,
+            manuallyHidden = false,
+            islandState = if (current.events.isNotEmpty() || current.islandState == IslandState.CHIP) IslandState.CHIP else current.islandState,
+        )
 
         if (hasProgress) return
 
@@ -472,7 +476,23 @@ constructor(
         }
     }
 
-    override fun stopScreenRecording() = repository.screenRecord.stopRecording()
+    override fun stopScreenRecording() {
+        repository.screenRecord.stopRecording()
+        // Hide the chip briefly so it cleanly exits without flashing
+        // intermediate events before the "recording saved" notification arrives.
+        val current = _uiState.value
+        _uiState.value = current.copy(islandState = IslandState.HIDDEN, manuallyHidden = true)
+        applicationScope.launch {
+            delay(1500)
+            val updated = _uiState.value
+            if (updated.manuallyHidden) {
+                _uiState.value = updated.copy(
+                    islandState = if (updated.events.isNotEmpty()) IslandState.CHIP else IslandState.HIDDEN,
+                    manuallyHidden = false,
+                )
+            }
+        }
+    }
 
     override fun togglePlayPause() = repository.media.togglePlayPause()
 
