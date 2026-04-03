@@ -123,8 +123,15 @@ constructor(
     private val _chipCenterXFraction = MutableStateFlow(0.5f)
     val chipCenterXFraction: StateFlow<Float> = _chipCenterXFraction.asStateFlow()
 
+    private val _chipWidthPx = MutableStateFlow(0f)
+    val chipWidthPx: StateFlow<Float> = _chipWidthPx.asStateFlow()
+
     fun updateChipCenterX(fraction: Float) {
         _chipCenterXFraction.value = fraction
+    }
+
+    fun updateChipWidth(widthPx: Float) {
+        _chipWidthPx.value = widthPx
     }
 
     private val _isExpanded = MutableStateFlow(false)
@@ -203,4 +210,3 @@ constructor(
         private const val LOW_UDFPS_THRESHOLD = 0.75f
     }
 }
-

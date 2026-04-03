@@ -155,6 +155,7 @@ fun AxDynamicBarChip(
                 if (screenWidthPx > 0f) {
                     viewModel.updateChipCenterX(centerX / screenWidthPx)
                 }
+                viewModel.updateChipWidth(bounds.width)
             },
     ) {
         state?.let { chipState ->
@@ -364,4 +365,3 @@ private fun StatusBarSportsTeamBadge(name: String, icon: Drawable?, contentColor
 }
 
 private data class ChipDisplay(val event: IslandEvent, val isAlert: Boolean)
-
