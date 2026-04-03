@@ -17,6 +17,7 @@ package com.android.systemui.statusbar.notification.icon.ui.viewmodel
 
 import android.content.res.Resources
 import android.graphics.Rect
+import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.dump.DumpManager
@@ -58,6 +59,7 @@ constructor(
     keyguardInteractor: KeyguardInteractor,
     @Main resources: Resources,
     shadeInteractor: ShadeInteractor,
+    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
 ) : FlowDumperImpl(dumpManager) {
 
     private val maxIcons = resources.getInteger(R.integer.max_notif_static_icons)
@@ -85,13 +87,15 @@ constructor(
 
     /** [NotificationIconsViewData] indicating which icons to display in the view. */
     val icons: Flow<NotificationIconsViewData> =
-        iconsInteractor.statusBarNotifs
-            .map { entries ->
-                NotificationIconsViewData(
-                    visibleIcons = entries.mapNotNull { it.toIconInfo(it.statusBarIcon) },
-                    iconLimit = maxIcons,
-                )
-            }
+        combine(
+            iconsInteractor.statusBarNotifs,
+            axDynamicBarChipViewModel.notifIconLimit,
+        ) { entries, axLimit ->
+            NotificationIconsViewData(
+                visibleIcons = entries.mapNotNull { it.toIconInfo(it.statusBarIcon) },
+                iconLimit = minOf(maxIcons, axLimit),
+            )
+        }
             .flowOn(bgContext)
             .conflate()
             .distinctUntilChanged()

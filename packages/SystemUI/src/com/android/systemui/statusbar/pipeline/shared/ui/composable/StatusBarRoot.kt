@@ -280,6 +280,7 @@ fun StatusBarRoot(
 
                 addDynamicBarCenterSpacer(phoneStatusBarView, axDynamicBarChipViewModel, context)
                 addDynamicBarToCenter(phoneStatusBarView, axDynamicBarChipViewModel, context)
+                setupDynamicBarClockBoundsTracking(phoneStatusBarView, axDynamicBarChipViewModel)
 
                 touchableExclusionRegionDisposableHandle =
                     HomeStatusBarTouchExclusionRegionBinder.bind(
@@ -602,6 +603,25 @@ private fun addBatteryComposable(
         }
     phoneStatusBarView.findViewById<ViewGroup>(R.id.system_icons).apply {
         addView(batteryComposeView, -1)
+    }
+}
+
+/**
+ * Tracks the clock view's right edge and pushes it into [AxDynamicBarChipViewModel] so it can
+ * compute how many notification icons fit between the clock and the chip.
+ */
+private fun setupDynamicBarClockBoundsTracking(
+    phoneStatusBarView: PhoneStatusBarView,
+    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+) {
+    val clockView = phoneStatusBarView.requireViewById<View>(R.id.clock)
+    val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+        axDynamicBarChipViewModel.updateClockBoundsRight(v.boundsOnScreen.right)
+    }
+    clockView.addOnLayoutChangeListener(listener)
+    // Push the initial value immediately in case layout doesn't change after this point.
+    clockView.post {
+        axDynamicBarChipViewModel.updateClockBoundsRight(clockView.boundsOnScreen.right)
     }
 }
 
