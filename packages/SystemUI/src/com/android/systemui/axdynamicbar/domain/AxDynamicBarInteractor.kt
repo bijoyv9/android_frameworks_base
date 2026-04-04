@@ -514,6 +514,9 @@ constructor(
     @Volatile private var pendingShowAfterStop: Boolean = false
 
     override fun stopScreenRecording() {
+        // Collapse any open expanded card immediately so it animates out with
+        // its content still intact, before the chip hides.
+        collapseIsland()
         repository.screenRecord.stopRecording()
         // Hide the chip briefly so it cleanly exits without flashing
         // intermediate events before the "recording saved" notification arrives.

@@ -260,6 +260,12 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     val lastAlert = remember { mutableStateOf<IslandEvent.Notification?>(null) }
     if (notifAlert != null) lastAlert.value = notifAlert
 
+    // Remember last non-null chipState so the card retains its content during
+    // the exit animation even when chipState becomes null (e.g. screen recording
+    // stopped while the card was open).
+    val lastChipState = remember { mutableStateOf(chipState) }
+    if (chipState != null) lastChipState.value = chipState
+
     val expandedVisible = remember { MutableTransitionState(false) }
     val showNotif = !isExpanded && notifAlert != null
     val notifVisible = remember { MutableTransitionState(false) }
@@ -329,7 +335,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                 .padding(top = topPad),
             contentAlignment = chipAlignment,
         ) {
-            chipState?.let { state ->
+            lastChipState.value?.let { state ->
                 ExpandedIslandContent(
                     events = state.allEvents,
                     interactor = viewModel.interactor,
