@@ -104,7 +104,7 @@ sealed class IslandEvent(open val priority: Int, val id: String) : Comparable<Is
         val isPowerSave: Boolean = false,
         val timeRemaining: String? = null,
     ) : IslandEvent(priority = 50, id = "charging") {
-        override val behavior = EventBehavior(autoDismissMs = 3000L, suppressOnDismiss = false)
+        override val behavior = EventBehavior(autoDismissMs = null, suppressOnDismiss = false)
     }
 
     data class RingerMode(val mode: Int, val label: String) :
