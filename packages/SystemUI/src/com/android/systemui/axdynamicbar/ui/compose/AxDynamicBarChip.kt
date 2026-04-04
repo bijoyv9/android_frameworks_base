@@ -181,10 +181,7 @@ fun AxDynamicBarChip(
             AnimatedContent(
                 targetState = ChipDisplay(displayEvent, isAlert),
                 transitionSpec = {
-                    (fadeIn(motionScheme.defaultEffectsSpec()) togetherWith
-                        fadeOut(motionScheme.fastEffectsSpec())).using(
-                        SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> motionScheme.defaultSpatialSpec() })
-                    )
+                    SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> motionScheme.defaultSpatialSpec() })
                 },
                 contentKey = { chipDisplayKey(it) },
                 label = "chip_event",
