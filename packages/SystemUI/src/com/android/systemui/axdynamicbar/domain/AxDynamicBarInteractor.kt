@@ -92,13 +92,6 @@ constructor(
     companion object {
         private const val TAG = "AxDynamicBarInteractor"
         private const val NOTIF_ALERT_DURATION_MS = 4500L
-
-        private fun IslandEvent.Notification.isActiveCall(): Boolean {
-            val extras = sbn.notification?.extras ?: return false
-            return extras.containsKey(Notification.EXTRA_ANSWER_INTENT) ||
-                extras.containsKey(Notification.EXTRA_DECLINE_INTENT) ||
-                extras.containsKey(Notification.EXTRA_HANG_UP_INTENT)
-        }
     }
 
     fun init() {
@@ -237,16 +230,14 @@ constructor(
             }.collect { (rawEvents, onKeyguard) ->
                 if (!settings.isEnabled.value) return@collect
                 dismissedEventIds.removeAll { id -> rawEvents.none { it.id == id } }
+                val hasActiveCall = rawEvents.any { it is IslandEvent.Call }
                 val events = rawEvents.filter { e ->
                     e.id !in dismissedEventIds &&
-                        
                         !(onKeyguard && e is IslandEvent.Notification) &&
-                        
                         !(onKeyguard && e is IslandEvent.Charging) &&
-                        
                         !(onKeyguard && e is IslandEvent.AppSwitch) &&
-                        
-                        !(!onKeyguard && e is IslandEvent.KeyguardIndication)
+                        !(!onKeyguard && e is IslandEvent.KeyguardIndication) &&
+                        !(hasActiveCall && e is IslandEvent.MicCamActive)
                 }
 
                 val current = _uiState.value
@@ -383,6 +374,7 @@ constructor(
             is IslandEvent.Vpn -> repository.connectivity.clearVpn()
             is IslandEvent.Clipboard -> repository.system.clearClipboard()
             is IslandEvent.Notification -> repository.notification.dismissNotification(event)
+            is IslandEvent.Call -> repository.notification.clearCall()
             is IslandEvent.AppSwitch -> repository.appTracking.clear()
             is IslandEvent.Torch -> {
                 repository.torch.toggleTorch()
@@ -417,7 +409,7 @@ constructor(
     override fun onNotificationAlertInteractionEnd() {
         val current = _uiState.value
         val alert = current.notificationAlert ?: return
-        if (alert.isActiveCall()) return
+        if (isCallNotification(alert)) return
         notifAlertJob = applicationScope.launch {
             delay(NOTIF_ALERT_DURATION_MS)
             dismissNotificationAlert()
@@ -434,7 +426,7 @@ constructor(
     }
 
     private fun shouldSuppressForDndOrRinger(notification: IslandEvent.Notification): Boolean {
-        if (notification.isActiveCall()) return false
+        if (isCallNotification(notification)) return false
         if (!settings.isHeadsUpEnabled.value) return true
         val category = notification.sbn.notification?.category
         if (category == Notification.CATEGORY_CALL || category == Notification.CATEGORY_ALARM) return false
@@ -453,8 +445,8 @@ constructor(
         val current = _uiState.value
         val existingAlert = current.notificationAlert
         if (existingAlert != null &&
-            existingAlert.isActiveCall() &&
-            !notification.isActiveCall()
+            isCallNotification(existingAlert) &&
+            !isCallNotification(notification)
         ) return
 
         val hasProgress = notification.progress >= 0 || notification.isProgressIndeterminate
@@ -471,7 +463,7 @@ constructor(
         if (hasProgress) return
 
         val duration =
-            if (!notification.isActiveCall()) NOTIF_ALERT_DURATION_MS else null
+            if (!isCallNotification(notification)) NOTIF_ALERT_DURATION_MS else null
         if (duration != null) {
             notifAlertJob = applicationScope.launch {
                 delay(duration)
@@ -509,6 +501,11 @@ constructor(
         activityStarter.startPendingIntentDismissingKeyguard(intent)
     }
 
+    override fun launchCallDismissingKeyguard(event: IslandEvent.Call) {
+        val intent = event.sbn.notification?.contentIntent ?: return
+        activityStarter.startPendingIntentDismissingKeyguard(intent)
+    }
+
     override fun setTorchLevel(level: Int) = repository.torch.setLevel(level)
 
     override fun setTorchLevelTemporary(level: Int) = repository.torch.setLevelTemporary(level)
@@ -518,6 +515,13 @@ constructor(
     override fun copyUriToClipboard(uri: Uri) = repository.system.copyUriToClipboard(uri)
 
     override fun removeClipboardItem(id: Long) = repository.system.removeClipboardItem(id)
+
+    private fun isCallNotification(notification: IslandEvent.Notification): Boolean {
+        val extras = notification.sbn.notification?.extras ?: return false
+        return extras.containsKey(Notification.EXTRA_ANSWER_INTENT) ||
+            extras.containsKey(Notification.EXTRA_DECLINE_INTENT) ||
+            extras.containsKey(Notification.EXTRA_HANG_UP_INTENT)
+    }
 
     override fun switchToApp(taskId: Int) = repository.appTracking.switchToApp(taskId)
 

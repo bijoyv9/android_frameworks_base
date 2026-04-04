@@ -262,6 +262,14 @@ internal fun chipAccentColorFor(event: IslandEvent): Color {
         val color = rememberPaletteColor(event.appIcon!!)
         if (color != null) return ensureContrast(color, isDark)
     }
+    if (event is IslandEvent.Call) {
+        val isDark = isSystemInDarkTheme()
+        val paletteSource = event.callerIcon ?: event.appIcon
+        if (paletteSource != null) {
+            val color = rememberPaletteColor(paletteSource)
+            if (color != null) return ensureContrast(color, isDark)
+        }
+    }
     return accentColorFor(event)
 }
 
@@ -520,6 +528,7 @@ internal fun iconKeyFor(event: IslandEvent): Any =
     when (event) {
         is IslandEvent.Media -> event.albumArt?.hashCode() ?: "media_default"
         is IslandEvent.Notification -> event.appIcon?.hashCode() ?: "notif_default"
+        is IslandEvent.Call -> (event.callerIcon ?: event.appIcon)?.hashCode() ?: "call_default"
         is IslandEvent.AppSwitch -> {
             val app = event.previousApp ?: event.recentApps.firstOrNull()
             app?.appIcon?.hashCode() ?: "app_default"
@@ -532,7 +541,8 @@ internal fun textKeyFor(event: IslandEvent): Any =
         is IslandEvent.Media -> "${event.track}|${event.artist}"
         is IslandEvent.Timer,
         is IslandEvent.Stopwatch,
-        is IslandEvent.AudioRecording -> "tick_text"
+        is IslandEvent.AudioRecording,
+        is IslandEvent.Call -> "tick_text"
         else -> event.id
     }
 
@@ -566,4 +576,3 @@ internal fun PendingIntent.sendWithBal(context: Context, fillIntent: Intent? = n
     )
     send(context, 0, fillIntent, null, null, null, options.toBundle())
 }
-
