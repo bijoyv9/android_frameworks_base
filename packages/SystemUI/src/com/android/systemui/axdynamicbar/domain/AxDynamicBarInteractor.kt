@@ -476,16 +476,19 @@ constructor(
         }
     }
 
+    @Volatile private var pendingShowAfterStop: Boolean = false
+
     override fun stopScreenRecording() {
         repository.screenRecord.stopRecording()
         // Hide the chip briefly so it cleanly exits without flashing
         // intermediate events before the "recording saved" notification arrives.
-        val current = _uiState.value
-        _uiState.value = current.copy(islandState = IslandState.HIDDEN, manuallyHidden = true)
+        pendingShowAfterStop = true
+        _uiState.value = _uiState.value.copy(islandState = IslandState.HIDDEN, manuallyHidden = true)
         applicationScope.launch {
             delay(1500)
-            val updated = _uiState.value
-            if (updated.manuallyHidden) {
+            if (pendingShowAfterStop) {
+                pendingShowAfterStop = false
+                val updated = _uiState.value
                 _uiState.value = updated.copy(
                     islandState = if (updated.events.isNotEmpty()) IslandState.CHIP else IslandState.HIDDEN,
                     manuallyHidden = false,

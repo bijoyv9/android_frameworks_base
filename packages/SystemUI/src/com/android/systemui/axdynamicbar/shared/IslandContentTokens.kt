@@ -546,6 +546,23 @@ internal fun textKeyFor(event: IslandEvent): Any =
         else -> event.id
     }
 
+/** Shared display key for AnimatedContent transitions across chip and now-bar. */
+internal fun displayKeyFor(event: IslandEvent, isAlert: Boolean): Any {
+    if (isAlert) {
+        val notification = event as? IslandEvent.Notification
+        return "alert:${notification?.sbn?.key ?: event.id}"
+    }
+    return when (event) {
+        is IslandEvent.Media ->
+            "media:${event.track}|${event.artist}|${iconKeyFor(event)}"
+        is IslandEvent.AudioRecording ->
+            "audio_recording:${event.state}:${event.appName}"
+        is IslandEvent.Call ->
+            "call:${event.sbn.key}:${iconKeyFor(event)}"
+        else -> "${event.id}:${textKeyFor(event)}:${iconKeyFor(event)}"
+    }
+}
+
 internal fun resolveCustomActionIcon(label: String): ImageVector {
     val lower = label.lowercase()
     return when {

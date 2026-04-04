@@ -39,6 +39,7 @@ constructor(
 
     fun startListening() {
         if (listening) return
+        stopRequested = false
         listening = true
         listenerJob?.cancel()
         listenerJob =

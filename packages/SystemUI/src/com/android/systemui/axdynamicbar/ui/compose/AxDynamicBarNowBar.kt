@@ -55,6 +55,7 @@ import com.android.systemui.axdynamicbar.shared.SpaceXs
 import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
 import com.android.systemui.axdynamicbar.shared.chipContentColorOn
 import com.android.systemui.axdynamicbar.shared.chipProgressFor
+import com.android.systemui.axdynamicbar.shared.displayKeyFor
 import com.android.systemui.axdynamicbar.shared.iconKeyFor
 import com.android.systemui.axdynamicbar.shared.textKeyFor
 import com.android.systemui.axdynamicbar.shared.toScaledBitmap
@@ -187,23 +188,8 @@ fun AxDynamicBarNowBar(
     }
 }
 
-private fun nowBarDisplayKey(display: NowBarDisplay): Any {
-    if (display.isAlert) {
-        val notification = display.event as? IslandEvent.Notification
-        return "alert:${notification?.sbn?.key ?: display.event.id}"
-    }
-
-    val event = display.event
-    return when (event) {
-        is IslandEvent.Media ->
-            "media:${event.track}|${event.artist}|${iconKeyFor(event)}"
-        is IslandEvent.AudioRecording ->
-            "audio_recording:${event.state}:${event.appName}"
-        is IslandEvent.Call ->
-            "call:${event.sbn.key}:${iconKeyFor(event)}"
-        else -> "${event.id}:${textKeyFor(event)}:${iconKeyFor(event)}"
-    }
-}
+private fun nowBarDisplayKey(display: NowBarDisplay): Any =
+    displayKeyFor(display.event, display.isAlert)
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
