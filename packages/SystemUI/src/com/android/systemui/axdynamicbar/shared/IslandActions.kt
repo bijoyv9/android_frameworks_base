@@ -22,6 +22,7 @@ val EVENT_TYPE_IDS: Map<Class<out IslandEvent>, String> =
         IslandEvent.Vpn::class.java to "vpn",
         IslandEvent.Clipboard::class.java to "clipboard",
         IslandEvent.Notification::class.java to "notification",
+        IslandEvent.Call::class.java to "call",
         IslandEvent.AppSwitch::class.java to "app_switch",
         IslandEvent.Torch::class.java to "torch",
         IslandEvent.BiometricUnlock::class.java to "biometric_unlock",
@@ -55,4 +56,5 @@ interface IslandActions {
     fun onNotificationAlertInteractionStart()
     fun onNotificationAlertInteractionEnd()
     fun launchNotificationDismissingKeyguard(event: IslandEvent.Notification)
+    fun launchCallDismissingKeyguard(event: IslandEvent.Call)
 }

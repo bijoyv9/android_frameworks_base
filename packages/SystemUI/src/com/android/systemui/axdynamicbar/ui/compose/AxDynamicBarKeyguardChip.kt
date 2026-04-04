@@ -582,6 +582,11 @@ private fun KeyguardPrimaryText(event: IslandEvent, color: Color, modifier: Modi
             else MarqueeText(event.label.ifEmpty { stringResource(R.string.ax_dynamic_bar_timer) }, color, modifier)
         }
         is IslandEvent.Stopwatch -> StopwatchTimeText(event, color, modifier)
+        is IslandEvent.Call -> MarqueeText(
+            event.callerName ?: event.title ?: event.appName,
+            color,
+            modifier,
+        )
         is IslandEvent.Notification -> MarqueeText(event.title ?: event.appName, color, modifier)
         is IslandEvent.Charging -> MarqueeText("${event.level}%", color, modifier)
         is IslandEvent.Bluetooth -> MarqueeText(event.deviceName.take(12), color, modifier)

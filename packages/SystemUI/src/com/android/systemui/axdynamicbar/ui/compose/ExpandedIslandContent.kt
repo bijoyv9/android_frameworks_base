@@ -206,6 +206,7 @@ internal fun ExpandedEventContent(
         is IslandEvent.AudioRecording -> AudioRecordingExpanded(event, interactor)
         is IslandEvent.Casting -> CastingExpanded(event)
         is IslandEvent.PromotedOngoing -> PromotedOngoingExpanded(event, interactor)
+        is IslandEvent.Call -> CallExpanded(event, interactor)
         is IslandEvent.Sports -> SportsExpanded(event, interactor)
         is IslandEvent.NowPlaying -> NowPlayingExpanded(event, interactor)
         is IslandEvent.Media -> MediaExpanded(event, interactor)

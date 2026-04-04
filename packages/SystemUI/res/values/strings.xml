@@ -4646,6 +4646,7 @@
     <string name="ax_dynamic_bar_until_full">until full</string>
     <string name="ax_dynamic_bar_battery_saver">Battery Saver</string>
     <string name="ax_dynamic_bar_incoming_call">Incoming Call</string>
+    <string name="ax_dynamic_bar_ongoing_call">Ongoing Call</string>
     <string name="ax_dynamic_bar_connected">Connected</string>
     <string name="ax_dynamic_bar_disconnect">Disconnect</string>
     <string name="ax_dynamic_bar_no_devices">No devices</string>
