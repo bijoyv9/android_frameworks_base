@@ -27,6 +27,7 @@ class AxDynamicBarSettings @Inject constructor(
         const val KEY_EVENTS = "ax_dynamic_bar_events"
         const val KEY_KEYGUARD_ENABLED = "ax_dynamic_bar_keyguard_enabled"
         const val KEY_COMPACT_NOTIFICATIONS = "ax_dynamic_bar_compact_notifications"
+        const val KEY_CHIP_POSITION = "ax_dynamic_bar_chip_position"
     }
 
     private val _isEnabled = MutableStateFlow(false)
@@ -37,6 +38,9 @@ class AxDynamicBarSettings @Inject constructor(
 
     private val _compactNotifications = MutableStateFlow(true)
     val compactNotifications: StateFlow<Boolean> = _compactNotifications.asStateFlow()
+
+    private val _chipPosition = MutableStateFlow(0)
+    val chipPosition: StateFlow<Int> = _chipPosition.asStateFlow()
 
     private val _isHeadsUpEnabled = MutableStateFlow(true)
     val isHeadsUpEnabled: StateFlow<Boolean> = _isHeadsUpEnabled.asStateFlow()
@@ -81,6 +85,12 @@ class AxDynamicBarSettings @Inject constructor(
             settingsObserver,
             UserHandle.USER_ALL,
         )
+        secureSettings.registerContentObserverForUserSync(
+            KEY_CHIP_POSITION,
+            false,
+            settingsObserver,
+            UserHandle.USER_ALL,
+        )
         globalSettings.registerContentObserverSync(
             Global.HEADS_UP_NOTIFICATIONS_ENABLED,
             false,
@@ -102,6 +112,9 @@ class AxDynamicBarSettings @Inject constructor(
             secureSettings.getIntForUser(KEY_KEYGUARD_ENABLED, 1, UserHandle.USER_CURRENT) == 1
         _compactNotifications.value =
             secureSettings.getIntForUser(KEY_COMPACT_NOTIFICATIONS, 1, UserHandle.USER_CURRENT) == 1
+        _chipPosition.value =
+            secureSettings.getIntForUser(KEY_CHIP_POSITION, 0, UserHandle.USER_CURRENT)
+                .coerceIn(0, 1)
         _isHeadsUpEnabled.value =
             globalSettings.getInt(Global.HEADS_UP_NOTIFICATIONS_ENABLED, 1) == 1
 

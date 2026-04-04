@@ -252,6 +252,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     val uiState by viewModel.interactor.uiState.collectAsStateWithLifecycle()
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
     val chipX by viewModel.chipCenterXFraction.collectAsStateWithLifecycle()
+    val chipPosition by viewModel.interactor.settings.chipPosition.collectAsStateWithLifecycle()
     val notifAlert = uiState.notificationAlert
     val compactNotifs by viewModel.interactor.settings.compactNotifications.collectAsStateWithLifecycle()
 
@@ -271,7 +272,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
         notifVisible.targetState = showNotif
     }
 
-    val originX = chipX
+    val originX = if (chipPosition == 1) 0.5f else chipX
     val origin = TransformOrigin(originX, 0f)
     
     val chipAlignment = BiasAlignment(

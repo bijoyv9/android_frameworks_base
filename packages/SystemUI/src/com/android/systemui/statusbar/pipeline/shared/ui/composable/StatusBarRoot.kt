@@ -26,8 +26,11 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -274,6 +277,9 @@ fun StatusBarRoot(
                     )
                 }
 
+                addDynamicBarCenterSpacer(phoneStatusBarView, axDynamicBarChipViewModel, context)
+                addDynamicBarToCenter(phoneStatusBarView, axDynamicBarChipViewModel, context)
+
                 touchableExclusionRegionDisposableHandle =
                     HomeStatusBarTouchExclusionRegionBinder.bind(
                         phoneStatusBarView,
@@ -492,7 +498,8 @@ private fun addStartSideComposable(
                     }
 
                 val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
-                if (axEnabled) {
+                val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
+                if (axEnabled && axPosition == 0) {
                     AxDynamicBarChip(
                         viewModel = axDynamicBarChipViewModel,
                         modifier = Modifier.widthIn(max = chipsMaxWidth),
@@ -596,6 +603,84 @@ private fun addBatteryComposable(
         addView(batteryComposeView, -1)
     }
 }
+
+/**
+ * Reserves space next to the notification icons when the AxDynamicBar chip is centered so the
+ * start-side content does not overlap it.
+ */
+private fun addDynamicBarCenterSpacer(
+    phoneStatusBarView: PhoneStatusBarView,
+    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+    context: Context,
+) {
+    val startSideExceptHeadsUp =
+        phoneStatusBarView.requireViewById<LinearLayout>(R.id.status_bar_start_side_except_heads_up)
+    val notificationIconArea = startSideExceptHeadsUp.requireViewById<View>(R.id.notification_icon_area)
+    val spacerIndex = startSideExceptHeadsUp.indexOfChild(notificationIconArea) + 1
+    val composeView =
+        ComposeView(context).apply {
+            layoutParams =
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                )
+            setContent {
+                val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
+                val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
+                val chipWidthPx by axDynamicBarChipViewModel.chipWidthPx.collectAsState()
+                val reserveWidth =
+                    with(LocalDensity.current) {
+                        if (axEnabled && axPosition == 1) {
+                            (chipWidthPx / 2f).toDp() + 8.dp
+                        } else {
+                            0.dp
+                        }
+                    }
+                Spacer(modifier = Modifier.width(reserveWidth))
+            }
+        }
+    startSideExceptHeadsUp.addView(composeView, spacerIndex)
+}
+
+/**
+ * Adds the AxDynamicBar chip to the centered_area of the status bar.
+ * Activated when ax_dynamic_bar_chip_position == 1.
+ */
+private fun addDynamicBarToCenter(
+    phoneStatusBarView: PhoneStatusBarView,
+    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+    context: Context,
+) {
+    val centeredArea =
+        phoneStatusBarView.requireViewById<AlphaOptimizedLinearLayout>(R.id.centered_area)
+    val composeView =
+        ComposeView(context).apply {
+            layoutParams =
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    weight = 1f
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+            setContent {
+                PlatformTheme {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
+                        val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
+                        if (axEnabled && axPosition == 1) {
+                            AxDynamicBarChip(viewModel = axDynamicBarChipViewModel)
+                        }
+                    }
+                }
+            }
+        }
+    centeredArea.addView(composeView)
+}
+
 
 /**
  * Create a composable that will replace the status_bar_end_side_content. This is added to the end
