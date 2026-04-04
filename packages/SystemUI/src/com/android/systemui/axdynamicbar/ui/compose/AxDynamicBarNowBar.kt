@@ -19,7 +19,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +27,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +50,6 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.android.systemui.axdynamicbar.model.IslandEvent
-import com.android.systemui.axdynamicbar.shared.AlphaHint
 import com.android.systemui.axdynamicbar.shared.AlphaTrack
 import com.android.systemui.axdynamicbar.shared.PillPrimary
 import com.android.systemui.axdynamicbar.shared.ShapeXl
@@ -270,7 +267,7 @@ private fun EventPillContent(
     }
     if (chipState.eventCount > 1) {
         Spacer(Modifier.width(SpaceSm))
-        NowBarDots(
+        AxDynamicBarEventIndicator(
             count = chipState.eventCount,
             activeIndex = chipState.pinnedIndex,
             color = contentColor,
@@ -278,24 +275,4 @@ private fun EventPillContent(
     }
 }
 
-@Composable
-private fun NowBarDots(count: Int, activeIndex: Int, color: Color) {
-    val dotCount = count.coerceAtMost(5)
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for (i in 0 until dotCount) {
-            val active = i == activeIndex.coerceIn(0, dotCount - 1) % dotCount
-            Box(
-                Modifier
-                    .size(if (active) 5.dp else 4.dp)
-                    .clip(CircleShape)
-                    .background(color.copy(alpha = if (active) 1f else AlphaHint))
-            )
-        }
-    }
-}
-
 private data class NowBarDisplay(val event: IslandEvent, val isAlert: Boolean)
-

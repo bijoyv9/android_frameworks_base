@@ -154,32 +154,41 @@ fun ExpandedIslandContent(
                     onDismiss = { interactor.dismissEvent(event) },
                     modifier = Modifier.animateItem(),
                 ) {
-                    if (event is IslandEvent.Media) {
-                        MediaCard(event, interactor)
-                    } else {
-                        PrimaryCard {
-                            AnimatedContent(
-                                targetState = event,
-                                transitionSpec = {
-                                    ((fadeIn(tween(180)) +
-                                        scaleIn(
-                                            initialScale = 0.95f,
-                                            animationSpec = tween(250),
-                                        )) togetherWith
-                                        (fadeOut(tween(120)) +
-                                            scaleOut(
-                                                targetScale = 0.95f,
-                                                animationSpec = tween(200),
-                                            ))).using(sizeTransform = null)
-                                },
-                                contentKey = { it::class.simpleName + it.id },
-                                label = "expanded_card",
-                            ) { animatedEvent ->
-                                ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
-                            }
-                        }
-                    }
+                    ExpandedEventCard(event, interactor, hapticsViewModelFactory)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpandedEventCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+) {
+    if (event is IslandEvent.Media) {
+        MediaCard(event, interactor)
+    } else {
+        PrimaryCard {
+            AnimatedContent(
+                targetState = event,
+                transitionSpec = {
+                    ((fadeIn(tween(180)) +
+                        scaleIn(
+                            initialScale = 0.95f,
+                            animationSpec = tween(250),
+                        )) togetherWith
+                        (fadeOut(tween(120)) +
+                            scaleOut(
+                                targetScale = 0.95f,
+                                animationSpec = tween(200),
+                            ))).using(sizeTransform = null)
+                },
+                contentKey = { it::class.simpleName + it.id },
+                label = "expanded_card",
+            ) { animatedEvent ->
+                ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
             }
         }
     }
@@ -242,4 +251,3 @@ internal fun PrimaryCard(content: @Composable () -> Unit) {
         content()
     }
 }
-
