@@ -1,6 +1,10 @@
 package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
@@ -31,11 +36,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.android.systemui.axdynamicbar.shared.IslandActions
@@ -149,36 +159,26 @@ fun ExpandedIslandContent(
                 }
             }
         } else {
-            items(filteredEvents, key = { it.id }) { event ->
-                MagneticSwipeToDismiss(
-                    onDismiss = { interactor.dismissEvent(event) },
-                    modifier = Modifier.animateItem(),
-                ) {
-                    if (event is IslandEvent.Media) {
-                        MediaCard(event, interactor)
-                    } else {
-                        PrimaryCard {
-                            AnimatedContent(
-                                targetState = event,
-                                transitionSpec = {
-                                    ((fadeIn(tween(180)) +
-                                        scaleIn(
-                                            initialScale = 0.95f,
-                                            animationSpec = tween(250),
-                                        )) togetherWith
-                                        (fadeOut(tween(120)) +
-                                            scaleOut(
-                                                targetScale = 0.95f,
-                                                animationSpec = tween(200),
-                                            ))).using(sizeTransform = null)
-                                },
-                                contentKey = { it::class.simpleName + it.id },
-                                label = "expanded_card",
-                            ) { animatedEvent ->
-                                ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
-                            }
-                        }
-                    }
+            itemsIndexed(filteredEvents, key = { _, event -> event.id }) { index, event ->
+                if (index == 0) {
+                    // First card: morphs from chip proportions, anchored at top-centre
+                    SeedCard(
+                        event = event,
+                        interactor = interactor,
+                        hapticsViewModelFactory = hapticsViewModelFactory,
+                        onDismiss = { interactor.dismissEvent(event) },
+                        modifier = Modifier.animateItem(),
+                    )
+                } else {
+                    // Remaining cards: stagger in below, reverse-stagger on exit
+                    StaggeredCard(
+                        event = event,
+                        interactor = interactor,
+                        hapticsViewModelFactory = hapticsViewModelFactory,
+                        onDismiss = { interactor.dismissEvent(event) },
+                        enterDelayMs = index * 70L,
+                        modifier = Modifier.animateItem(),
+                    )
                 }
             }
         }
@@ -243,3 +243,97 @@ internal fun PrimaryCard(content: @Composable () -> Unit) {
     }
 }
 
+/** Wraps a single event into a card — MediaCard or PrimaryCard with animated content. */
+@Composable
+private fun ExpandedEventCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+) {
+    if (event is IslandEvent.Media) {
+        MediaCard(event, interactor)
+    } else {
+        PrimaryCard {
+            AnimatedContent(
+                targetState = event,
+                transitionSpec = {
+                    ((fadeIn(tween(180)) + scaleIn(initialScale = 0.95f, animationSpec = tween(250))) togetherWith
+                        (fadeOut(tween(120)) + scaleOut(targetScale = 0.95f, animationSpec = tween(200))))
+                        .using(sizeTransform = null)
+                },
+                contentKey = { it::class.simpleName + it.id },
+                label = "expanded_card",
+            ) { animatedEvent ->
+                ExpandedEventContent(animatedEvent, interactor, hapticsViewModelFactory)
+            }
+        }
+    }
+}
+
+/**
+ * First card in the list. Springs open from chip proportions anchored at top-centre,
+ * giving the illusion that the pill itself is morphing into a card.
+ * On collapse the panel's own exit animation covers the retract.
+ */
+@Composable
+private fun SeedCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val scaleSpec = spring<Float>(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium)
+    val scaleX by animateFloatAsState(if (entered) 1f else 0.38f, scaleSpec, label = "seedScaleX")
+    val scaleY by animateFloatAsState(if (entered) 1f else 0.28f, scaleSpec, label = "seedScaleY")
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                this.scaleX = scaleX
+                this.scaleY = scaleY
+                transformOrigin = TransformOrigin(0.5f, 0f)
+            }
+    ) {
+        MagneticSwipeToDismiss(onDismiss = onDismiss) {
+            ExpandedEventCard(event, interactor, hapticsViewModelFactory)
+        }
+    }
+}
+
+/**
+ * Subsequent cards. Stagger in below the seed card on enter; on exit they
+ * reverse-stagger (last card exits first) before the panel collapses.
+ */
+@Composable
+private fun StaggeredCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+    onDismiss: () -> Unit,
+    enterDelayMs: Long,
+    modifier: Modifier = Modifier,
+) {
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        delay(enterDelayMs)
+        visible = true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(200)) + scaleIn(
+            initialScale = 0.88f,
+            animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
+        ),
+        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.92f, animationSpec = tween(120)),
+        modifier = modifier,
+    ) {
+        MagneticSwipeToDismiss(onDismiss = onDismiss) {
+            ExpandedEventCard(event, interactor, hapticsViewModelFactory)
+        }
+    }
+}
