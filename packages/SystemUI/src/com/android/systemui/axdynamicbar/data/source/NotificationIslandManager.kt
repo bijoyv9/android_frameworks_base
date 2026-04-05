@@ -791,6 +791,12 @@ constructor(
         setCallEvent(event)
     }
 
+    /**
+     * Clears the call event from the chip UI only.
+     * The underlying system notification remains in the status bar.
+     * This is intentional: call actions (answer/decline) are handled
+     * via the notification's content intent, not chip dismissal.
+     */
     fun clearCall() {
         setCallEvent(null)
     }

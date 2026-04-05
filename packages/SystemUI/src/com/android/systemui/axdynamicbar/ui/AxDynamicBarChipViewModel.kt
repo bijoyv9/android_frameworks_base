@@ -152,6 +152,9 @@ constructor(
      * left edge, then fitting as many icon slots as possible. Works correctly for all screen
      * sizes — tablets naturally get more icons, phones with wide chips or seconds-enabled
      * clocks naturally get fewer.
+     *
+     * Also accounts for keyguard state: notifications are filtered out on keyguard, so the
+     * limit relaxes to avoid unnecessary icon churning during unlock transitions.
      */
     val notifIconLimit: StateFlow<Int> = combine(
         interactor.settings.isEnabled,
@@ -160,6 +163,7 @@ constructor(
         _chipCenterXFraction,
         _clockBoundsRight,
         chipState,
+        interactor.isOnKeyguard,
     ) { args ->
         val enabled = args[0] as Boolean
         val position = args[1] as Int
@@ -167,7 +171,10 @@ constructor(
         val centerFraction = args[3] as Float
         val clockRight = args[4] as Int
         val chip = args[5] as AxDynamicBarChipState?
-        if (!enabled || chip == null || position != AxDynamicBarSettings.CHIP_POSITION_CENTER || clockRight == 0) {
+        val onKeyguard = args[6] as Boolean
+        // On keyguard, notifications are filtered — no need to constrain icons for a chip
+        // that won't show notifications anyway. Prevents icon count flicker during transitions.
+        if (!enabled || chip == null || position != AxDynamicBarSettings.CHIP_POSITION_CENTER || clockRight == 0 || onKeyguard) {
             return@combine Int.MAX_VALUE
         }
         val screenWidthPx = context.resources.displayMetrics.widthPixels.toFloat()
