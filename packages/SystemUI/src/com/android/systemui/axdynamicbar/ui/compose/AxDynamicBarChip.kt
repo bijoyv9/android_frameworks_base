@@ -153,6 +153,10 @@ fun AxDynamicBarChip(
             }
             .onGloballyPositioned { coords ->
                 val bounds = coords.boundsInWindow()
+                // Guard against empty bounds reported when the composable is
+                // being removed from composition — stale zero values would corrupt
+                // the notifIconLimit calculation until the next layout pass.
+                if (bounds.width <= 0f || bounds.height <= 0f) return@onGloballyPositioned
                 val centerX = (bounds.left + bounds.right) / 2f
                 if (screenWidthPx > 0f) {
                     viewModel.updateChipCenterX(centerX / screenWidthPx)
