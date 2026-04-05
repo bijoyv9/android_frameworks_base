@@ -539,6 +539,7 @@ internal fun iconKeyFor(event: IslandEvent): Any =
 internal fun textKeyFor(event: IslandEvent): Any =
     when (event) {
         is IslandEvent.Media -> "${event.track}|${event.artist}"
+        is IslandEvent.ScreenRecording -> "screen_recording:${event.isCountdown}"
         is IslandEvent.Timer,
         is IslandEvent.Stopwatch,
         is IslandEvent.AudioRecording,
