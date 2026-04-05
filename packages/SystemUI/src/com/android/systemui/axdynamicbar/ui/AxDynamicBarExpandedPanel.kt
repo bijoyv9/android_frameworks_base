@@ -11,12 +11,20 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -293,49 +301,76 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
         enter = fadeIn(tween(180)),
         exit = fadeOut(tween(500)),
     ) {
-        
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    val slop = viewConfiguration.touchSlop
-                    awaitEachGesture {
-                        
-                        var ev: PointerEvent
-                        do {
-                            ev = awaitPointerEvent(PointerEventPass.Final)
-                        } while (!ev.changes.any { it.changedToDownIgnoreConsumed() })
-                        val downPos = ev.changes[0].position
-                        
-                        val downConsumed = ev.changes[0].isConsumed
-                        
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Final)
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) {
-                                if (!downConsumed && !change.isConsumed) {
-                                    val dx = change.position.x - downPos.x
-                                    val dy = change.position.y - downPos.y
-                                    if (dx * dx + dy * dy <= slop * slop) {
-                                        viewModel.collapsePanel()
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Full-screen tap-to-dismiss + cards
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        val slop = viewConfiguration.touchSlop
+                        awaitEachGesture {
+
+                            var ev: PointerEvent
+                            do {
+                                ev = awaitPointerEvent(PointerEventPass.Final)
+                            } while (!ev.changes.any { it.changedToDownIgnoreConsumed() })
+                            val downPos = ev.changes[0].position
+
+                            val downConsumed = ev.changes[0].isConsumed
+
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) {
+                                    if (!downConsumed && !change.isConsumed) {
+                                        val dx = change.position.x - downPos.x
+                                        val dy = change.position.y - downPos.y
+                                        if (dx * dx + dy * dy <= slop * slop) {
+                                            viewModel.collapsePanel()
+                                        }
                                     }
+                                    break
                                 }
-                                break
                             }
                         }
                     }
+                    .padding(top = expandedTopPad),
+                contentAlignment = chipAlignment,
+            ) {
+                lastChipState.value?.let { state ->
+                    ExpandedIslandContent(
+                        events = state.allEvents,
+                        interactor = viewModel.interactor,
+                        onCollapse = { viewModel.collapsePanel() },
+                        collapseRequested = !isExpanded,
+                        pinnedEventId = state.event.id,
+                        hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
+                    )
                 }
-                .padding(top = expandedTopPad),
-            contentAlignment = chipAlignment,
-        ) {
-            lastChipState.value?.let { state ->
-                ExpandedIslandContent(
-                    events = state.allEvents,
-                    interactor = viewModel.interactor,
-                    onCollapse = { viewModel.collapsePanel() },
-                    collapseRequested = !isExpanded,
-                    pinnedEventId = state.event.id,
-                    hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
+            }
+
+            // Fixed dismiss strip — sits in the status bar area where the chip was
+            val stripHeight = if (statusBarHeightPx > 0) {
+                with(density) { statusBarHeightPx.toDp() }
+            } else 28.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(stripHeight)
+                    .align(Alignment.TopCenter)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { viewModel.collapsePanel() },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.15f))
                 )
             }
         }

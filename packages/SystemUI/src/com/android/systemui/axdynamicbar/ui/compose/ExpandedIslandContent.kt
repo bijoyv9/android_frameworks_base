@@ -130,9 +130,6 @@ fun ExpandedIslandContent(
         contentPadding =
             PaddingValues(start = SpaceLg, end = SpaceLg, top = SpaceXxs, bottom = EXPANDED_BOTTOM_PAD),
     ) {
-        item(key = "dismiss_strip") {
-            DismissStrip(onDismiss = onCollapse)
-        }
         if (isNotificationFilter && notifGroups.isNotEmpty()) {
             notifGroups.forEach { group ->
                 if (group.size == 1) {
@@ -361,25 +358,3 @@ private fun StaggeredCard(
     }
 }
 
-@Composable
-private fun DismissStrip(onDismiss: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(28.dp)
-                .height(3.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color.White.copy(alpha = 0.15f))
-        )
-    }
-}
