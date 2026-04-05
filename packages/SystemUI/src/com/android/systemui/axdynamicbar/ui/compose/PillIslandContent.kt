@@ -757,7 +757,11 @@ private fun AnimatedDownloadIcon(color: Color) {
 
 @Composable
 private fun PromotedOngoingText(event: IslandEvent.PromotedOngoing, modifier: Modifier, overrideColor: Color? = null) {
-    val label = event.shortText.ifEmpty { event.title.ifEmpty { event.appName } }
+    val label = if (event.progress >= 0f) {
+        "Downloading · ${(event.progress * 100).toInt()}%"
+    } else {
+        event.shortText.ifEmpty { event.title.ifEmpty { event.appName } }
+    }
     MarqueeLabel(label, overrideColor ?: BlueAccent, modifier)
 }
 
