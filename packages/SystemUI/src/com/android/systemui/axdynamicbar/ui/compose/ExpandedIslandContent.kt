@@ -2,15 +2,14 @@ package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,14 +49,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.android.systemui.axdynamicbar.shared.IslandActions
 import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.axdynamicbar.shared.*
 import com.android.systemui.res.R
@@ -69,6 +65,7 @@ fun ExpandedIslandContent(
     events: List<IslandEvent>,
     interactor: IslandActions,
     onCollapse: () -> Unit,
+    collapseRequested: Boolean = false,
     expandedFilter: String? = null,
     pinnedEventId: String? = null,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
@@ -177,6 +174,8 @@ fun ExpandedIslandContent(
                         interactor = interactor,
                         hapticsViewModelFactory = hapticsViewModelFactory,
                         onDismiss = { interactor.dismissEvent(event) },
+                        exitDelayMs = index.toLong() * 80L,
+                        collapseRequested = collapseRequested,
                         modifier = Modifier.animateItem(),
                     )
                 } else {
@@ -187,6 +186,8 @@ fun ExpandedIslandContent(
                         hapticsViewModelFactory = hapticsViewModelFactory,
                         onDismiss = { interactor.dismissEvent(event) },
                         delayMs = 140L + distanceFromSeed * 80L,
+                        exitDelayMs = index.toLong() * 80L,
+                        collapseRequested = collapseRequested,
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -293,28 +294,31 @@ private fun SeedCard(
     interactor: IslandActions,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
     onDismiss: () -> Unit,
+    exitDelayMs: Long,
+    collapseRequested: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val scaleX = remember { Animatable(0.38f) }
-    val scaleY = remember { Animatable(0.32f) }
+    var visible by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         delay(80L)
-        launch { scaleX.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMedium)) }
-        scaleY.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMedium))
+        visible = true
     }
 
-    Box(
-        modifier = modifier
-            .graphicsLayer {
-                this.scaleX = scaleX.value
-                this.scaleY = scaleY.value
-                transformOrigin = TransformOrigin(0.5f, 0f)
-            }
+    LaunchedEffect(collapseRequested) {
+        if (collapseRequested) {
+            delay(exitDelayMs)
+            visible = false
+        }
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(200)) + slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it / 4 },
+        exit = fadeOut(tween(160)) + slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 4 },
+        modifier = modifier,
     ) {
-        MagneticSwipeToDismiss(
-            onDismiss = onDismiss,
-        ) {
+        MagneticSwipeToDismiss(onDismiss = onDismiss) {
             ExpandedEventCard(event, interactor, hapticsViewModelFactory)
         }
     }
@@ -327,6 +331,8 @@ private fun StaggeredCard(
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
     onDismiss: () -> Unit,
     delayMs: Long,
+    exitDelayMs: Long,
+    collapseRequested: Boolean,
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(false) }
@@ -336,16 +342,20 @@ private fun StaggeredCard(
         visible = true
     }
 
-    // No exit spec: visible is never set back to false — dismissal is handled
-    // by MagneticSwipeToDismiss (swipe gesture) + animateItem() (slot removal).
+    LaunchedEffect(collapseRequested) {
+        if (collapseRequested) {
+            delay(exitDelayMs)
+            visible = false
+        }
+    }
+
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 3 },
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it / 4 },
+        exit = fadeOut(tween(160)) + slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 4 },
         modifier = modifier,
     ) {
-        MagneticSwipeToDismiss(
-            onDismiss = onDismiss,
-        ) {
+        MagneticSwipeToDismiss(onDismiss = onDismiss) {
             ExpandedEventCard(event, interactor, hapticsViewModelFactory)
         }
     }

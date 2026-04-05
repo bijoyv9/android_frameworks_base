@@ -248,6 +248,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     val topPad = if (isLargeScreen) {
         with(density) { statusBarHeightPx.toDp() } + 4.dp
     } else 0.dp
+    val expandedTopPad = with(density) { statusBarHeightPx.toDp() } + if (isLargeScreen) 4.dp else 0.dp
     val chipState by viewModel.chipState.collectAsStateWithLifecycle()
     val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
     val uiState by viewModel.interactor.uiState.collectAsStateWithLifecycle()
@@ -290,7 +291,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     AnimatedVisibility(
         visibleState = expandedVisible,
         enter = fadeIn(tween(180)),
-        exit = fadeOut(tween(200)),
+        exit = fadeOut(tween(500)),
     ) {
         
         Box(
@@ -324,7 +325,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                         }
                     }
                 }
-                .padding(top = topPad),
+                .padding(top = expandedTopPad),
             contentAlignment = chipAlignment,
         ) {
             lastChipState.value?.let { state ->
@@ -332,6 +333,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                     events = state.allEvents,
                     interactor = viewModel.interactor,
                     onCollapse = { viewModel.collapsePanel() },
+                    collapseRequested = !isExpanded,
                     pinnedEventId = state.event.id,
                     hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
                 )
