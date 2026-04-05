@@ -14,6 +14,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,10 +24,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -45,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
@@ -128,6 +133,9 @@ fun ExpandedIslandContent(
         contentPadding =
             PaddingValues(start = SpaceLg, end = SpaceLg, top = SpaceXxs, bottom = EXPANDED_BOTTOM_PAD),
     ) {
+        item(key = "dismiss_strip") {
+            DismissStrip(onDismiss = onCollapse)
+        }
         if (isNotificationFilter && notifGroups.isNotEmpty()) {
             notifGroups.forEach { group ->
                 if (group.size == 1) {
@@ -169,6 +177,7 @@ fun ExpandedIslandContent(
                         interactor = interactor,
                         hapticsViewModelFactory = hapticsViewModelFactory,
                         onDismiss = { interactor.dismissEvent(event) },
+                        modifier = Modifier.animateItem(),
                     )
                 } else {
                     val distanceFromSeed = total - 1 - index
@@ -178,6 +187,7 @@ fun ExpandedIslandContent(
                         hapticsViewModelFactory = hapticsViewModelFactory,
                         onDismiss = { interactor.dismissEvent(event) },
                         delayMs = 140L + distanceFromSeed * 80L,
+                        modifier = Modifier.animateItem(),
                     )
                 }
             }
@@ -283,6 +293,7 @@ private fun SeedCard(
     interactor: IslandActions,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scaleX = remember { Animatable(0.38f) }
     val scaleY = remember { Animatable(0.32f) }
@@ -294,8 +305,7 @@ private fun SeedCard(
     }
 
     Box(
-        modifier = Modifier
-            .animateItem()
+        modifier = modifier
             .graphicsLayer {
                 this.scaleX = scaleX.value
                 this.scaleY = scaleY.value
@@ -317,6 +327,7 @@ private fun StaggeredCard(
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
     onDismiss: () -> Unit,
     delayMs: Long,
+    modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(false) }
 
@@ -330,12 +341,35 @@ private fun StaggeredCard(
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 3 },
+        modifier = modifier,
     ) {
         MagneticSwipeToDismiss(
             onDismiss = onDismiss,
-            modifier = Modifier.animateItem(),
         ) {
             ExpandedEventCard(event, interactor, hapticsViewModelFactory)
         }
+    }
+}
+
+@Composable
+private fun DismissStrip(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(28.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color.White.copy(alpha = 0.15f))
+        )
     }
 }
