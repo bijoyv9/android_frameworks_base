@@ -1,7 +1,10 @@
 package com.android.systemui.axdynamicbar.ui
 
+import android.content.Context
 import android.os.SystemProperties
 import com.android.systemui.axdynamicbar.domain.AxDynamicBarInteractor
+import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings
+import com.android.systemui.res.R
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.biometrics.AuthController
 import com.android.systemui.biometrics.domain.interactor.UdfpsOverlayInteractor
@@ -47,6 +50,7 @@ class AxDynamicBarChipViewModel
 @Inject
 constructor(
     @Application private val applicationScope: CoroutineScope,
+    @Application private val context: Context,
     val interactor: AxDynamicBarInteractor,
     batteryInteractor: BatteryInteractor,
     private val batteryController: BatteryController,
@@ -127,6 +131,18 @@ constructor(
         _chipCenterXFraction.value = fraction
     }
 
+    private val _chipWidthPx = MutableStateFlow(0)
+
+    fun updateChipWidthPx(widthPx: Int) {
+        if (widthPx > 0) _chipWidthPx.value = widthPx
+    }
+
+    private val _clockBoundsRight = MutableStateFlow(0)
+
+    fun updateClockBoundsRight(px: Int) {
+        if (px > 0) _clockBoundsRight.value = px
+    }
+
     private val _isExpanded = MutableStateFlow(false)
     val isExpanded: StateFlow<Boolean> = _isExpanded.asStateFlow()
     @Volatile private var collapseOnNullJob: Job? = null
@@ -198,9 +214,57 @@ constructor(
         interactor.launchNotificationDismissingKeyguard(event)
     }
 
+    /**
+     * Dynamic notification icon limit for the status bar. When the chip is visible in center
+     * mode, icons on the left are capped so they don't overlap the pill.
+     *
+     * Uses only real measured values — no constants, no estimations:
+     *   chipLeftEdgePx = chipCenterFraction * screenWidthPx − chipWidthPx / 2
+     *   available      = chipLeftEdgePx − clockRight − safetyGap (one icon slot)
+     *   limit          = floor(available / iconSlotPx)
+     *
+     * Relaxes to Int.MAX_VALUE on keyguard (notifications filtered there anyway) to
+     * avoid icon count flicker during unlock transitions.
+     *
+     * Override via:  adb shell setprop persist.sys.axdb.notif_icon_limit <N>
+     * Revert with -1. Takes effect without reboot.
+     */
+    val notifIconLimit: StateFlow<Int> = combine(
+        interactor.settings.isEnabled,
+        interactor.settings.chipPosition,
+        _chipWidthPx,
+        _chipCenterXFraction,
+        _clockBoundsRight,
+        chipState,
+        interactor.isOnKeyguard,
+    ) { args ->
+        val enabled    = args[0] as Boolean
+        val position   = args[1] as Int
+        val widthPx    = (args[2] as Int).toFloat()
+        val centerFrac = args[3] as Float
+        val clockRight = args[4] as Int
+        val chip       = args[5] as AxDynamicBarChipState?
+        val onKeyguard = args[6] as Boolean
+        // On keyguard, notifications are filtered — no need to constrain icons for a chip
+        // that won't show notifications anyway. Prevents icon count flicker during transitions.
+        if (!enabled || chip == null || position != AxDynamicBarSettings.CHIP_POSITION_CENTER || clockRight == 0 || widthPx == 0f || onKeyguard) {
+            return@combine Int.MAX_VALUE
+        }
+        val override = SystemProperties.getInt(PROP_NOTIF_ICON_LIMIT, -1)
+        if (override >= 0) return@combine override
+        val screenWidthPx = context.resources.displayMetrics.widthPixels.toFloat()
+        val chipLeftEdgePx = centerFrac * screenWidthPx - widthPx / 2f
+        val iconSlotPx = context.resources
+            .getDimensionPixelSize(R.dimen.status_bar_icon_size_sp).toFloat()
+        val availablePx = (chipLeftEdgePx - clockRight - iconSlotPx).coerceAtLeast(0f)
+        (availablePx / iconSlotPx).toInt()
+    }.stateIn(applicationScope, SharingStarted.Eagerly, Int.MAX_VALUE)
+
     companion object {
         private const val PROP_COMPACT_CHIP = "persist.sys.axdb.compact_chip"
         private const val LOW_UDFPS_THRESHOLD = 0.75f
+
+        private const val PROP_NOTIF_ICON_LIMIT = "persist.sys.axdb.notif_icon_limit"
     }
 }
 

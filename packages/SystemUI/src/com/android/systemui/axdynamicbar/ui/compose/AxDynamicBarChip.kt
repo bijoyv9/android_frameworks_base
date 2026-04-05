@@ -2,6 +2,7 @@ package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -48,6 +49,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.shape.CircleShape
@@ -67,6 +69,7 @@ import com.android.systemui.axdynamicbar.shared.TsBadge
 import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
 import com.android.systemui.axdynamicbar.shared.chipContentColorOn
 import com.android.systemui.axdynamicbar.shared.chipProgressFor
+import com.android.systemui.axdynamicbar.shared.displayKeyFor
 import com.android.systemui.axdynamicbar.shared.iconKeyFor
 import com.android.systemui.axdynamicbar.shared.textKeyFor
 import com.android.systemui.axdynamicbar.shared.toScaledBitmap
@@ -76,6 +79,16 @@ import kotlin.math.abs
 
 private val ChipShape = ShapeXl
 private val ChipHeight = 24.dp
+private const val ChipWidthFraction = 0.30f
+private val ChipWidthCap = 180.dp
+// SpaceSm(6) + icon(16) + SpaceXs(4) + SpaceMd(8)
+private val ChipContentOverhead = 34.dp
+
+@Composable
+private fun chipMaxWidth(): Dp {
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    return (screenWidth * ChipWidthFraction).coerceAtMost(ChipWidthCap)
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -87,8 +100,10 @@ fun AxDynamicBarChip(
     val state by viewModel.chipState.collectAsStateWithLifecycle()
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
     val keyguardCarrier by viewModel.keyguardCarrierText.collectAsStateWithLifecycle()
-    
+
     val carrierName = if (isOnKeyguard && ignoreKeyguard) keyguardCarrier.takeIf { it.isNotBlank() } else null
+    val chipMax = chipMaxWidth()
+    val textMax = (chipMax - ChipContentOverhead).coerceAtLeast(40.dp)
     val screenWidthPx = with(LocalDensity.current) {
         LocalConfiguration.current.screenWidthDp.dp.toPx()
     }
@@ -151,9 +166,11 @@ fun AxDynamicBarChip(
             }
             .onGloballyPositioned { coords ->
                 val bounds = coords.boundsInWindow()
+                if (bounds.isEmpty) return@onGloballyPositioned
                 val centerX = (bounds.left + bounds.right) / 2f
                 if (screenWidthPx > 0f) {
                     viewModel.updateChipCenterX(centerX / screenWidthPx)
+                    viewModel.updateChipWidthPx(bounds.width.toInt())
                 }
             },
     ) {
@@ -164,12 +181,9 @@ fun AxDynamicBarChip(
             AnimatedContent(
                 targetState = ChipDisplay(displayEvent, isAlert),
                 transitionSpec = {
-                    ((fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.92f, animationSpec = motionScheme.defaultSpatialSpec())) togetherWith
-                        (fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.92f, animationSpec = motionScheme.fastSpatialSpec()))).using(
-                        sizeTransform = null
-                    )
+                    fadeIn() togetherWith fadeOut() using SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> motionScheme.defaultSpatialSpec() })
                 },
-                contentKey = { if (it.isAlert) "alert" else it.event::class.simpleName },
+                contentKey = { chipDisplayKey(it) },
                 label = "chip_event",
             ) { display ->
                 val rawAccent = chipAccentColorFor(display.event)
@@ -191,6 +205,7 @@ fun AxDynamicBarChip(
                     Row(
                         modifier =
                             Modifier.height(ChipHeight)
+                                .widthIn(max = chipMax)
                                 .clip(ChipShape)
                                 .background(accent)
                                 .then(
@@ -263,7 +278,7 @@ fun AxDynamicBarChip(
                                         color = contentColor,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.widthIn(max = 100.dp).basicMarquee(),
+                                        modifier = Modifier.widthIn(max = textMax).basicMarquee(),
                                     )
                                 }
                             }
@@ -277,6 +292,7 @@ fun AxDynamicBarChip(
                                 style = PillPrimary,
                                 color = contentColor,
                                 maxLines = 1,
+                                modifier = Modifier.widthIn(max = (chipMax - 74.dp).coerceAtLeast(20.dp)),
                             )
                             Spacer(Modifier.width(SpaceXs))
                             StatusBarSportsTeamBadge(sport.team2Name, sport.team2Icon, contentColor)
@@ -305,7 +321,7 @@ fun AxDynamicBarChip(
                             ) { event ->
                                 PillEventText(
                                     event,
-                                    Modifier.widthIn(max = 100.dp),
+                                    Modifier.widthIn(max = textMax),
                                     overrideColor = contentColor,
                                 )
                             }
@@ -364,4 +380,7 @@ private fun StatusBarSportsTeamBadge(name: String, icon: Drawable?, contentColor
 }
 
 private data class ChipDisplay(val event: IslandEvent, val isAlert: Boolean)
+
+private fun chipDisplayKey(display: ChipDisplay): Any =
+    displayKeyFor(display.event, display.isAlert)
 

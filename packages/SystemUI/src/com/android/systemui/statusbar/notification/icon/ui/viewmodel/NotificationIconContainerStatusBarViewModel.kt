@@ -19,6 +19,7 @@ import android.content.res.Resources
 import android.graphics.Rect
 import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.dagger.qualifiers.Main
+import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.dump.DumpManager
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
 import com.android.systemui.plugins.DarkIconDispatcher
@@ -58,6 +59,7 @@ constructor(
     keyguardInteractor: KeyguardInteractor,
     @Main resources: Resources,
     shadeInteractor: ShadeInteractor,
+    chipViewModel: AxDynamicBarChipViewModel,
 ) : FlowDumperImpl(dumpManager) {
 
     private val maxIcons = resources.getInteger(R.integer.max_notif_static_icons)
@@ -86,10 +88,13 @@ constructor(
     /** [NotificationIconsViewData] indicating which icons to display in the view. */
     val icons: Flow<NotificationIconsViewData> =
         iconsInteractor.statusBarNotifs
-            .map { entries ->
+            .combine(chipViewModel.notifIconLimit) { entries, chipLimit ->
                 NotificationIconsViewData(
                     visibleIcons = entries.mapNotNull { it.toIconInfo(it.statusBarIcon) },
-                    iconLimit = maxIcons,
+                    // When the center chip is visible, chipLimit is tighter than maxIcons on
+                    // small screens to prevent icons from overlapping the pill. On large screens
+                    // (tablets) chipLimit exceeds maxIcons so maxIcons remains the cap.
+                    iconLimit = chipLimit.coerceAtMost(maxIcons),
                 )
             }
             .flowOn(bgContext)

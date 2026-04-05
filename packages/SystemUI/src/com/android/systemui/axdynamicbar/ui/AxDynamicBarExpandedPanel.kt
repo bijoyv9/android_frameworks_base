@@ -44,6 +44,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.android.compose.theme.PlatformTheme
 import com.android.systemui.shared.recents.utilities.Utilities
+import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.axdynamicbar.shared.ExpandedMaxWidth
 import com.android.systemui.axdynamicbar.ui.compose.ExpandedIslandContent
@@ -271,7 +272,8 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
         notifVisible.targetState = showNotif
     }
 
-    val originX = chipX
+    val chipPosition by viewModel.interactor.settings.chipPosition.collectAsStateWithLifecycle()
+    val originX = if (chipPosition == AxDynamicBarSettings.CHIP_POSITION_CENTER) 0.5f else chipX
     val origin = TransformOrigin(originX, 0f)
     
     val chipAlignment = BiasAlignment(

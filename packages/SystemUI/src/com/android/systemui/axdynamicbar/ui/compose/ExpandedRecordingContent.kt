@@ -75,7 +75,10 @@ internal fun ScreenRecordExpanded(
                 color = OnDestructiveText,
                 bg = DestructiveBg,
                 modifier = Modifier.fillMaxWidth(),
-                onClick = { interactor.stopScreenRecording() },
+                onClick = {
+                    interactor.stopScreenRecording()
+                    interactor.collapseIsland()
+                },
             )
         },
     )

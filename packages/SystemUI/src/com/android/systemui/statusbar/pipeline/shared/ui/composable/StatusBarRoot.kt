@@ -26,6 +26,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -78,6 +79,7 @@ import com.android.systemui.res.R
 import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.shade.ui.composable.VariableDayDate
 import com.android.systemui.statusbar.StatusBarAlwaysUseRegionSampling
+import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings
 import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.axdynamicbar.ui.compose.AxDynamicBarChip
 import com.android.systemui.statusbar.chips.ui.compose.OngoingActivityChips
@@ -395,6 +397,8 @@ fun StatusBarRoot(
                     eventAnimationInteractor::animateStatusBarContentForChipExit,
                     listener = null,
                 )
+                setupDynamicBarClockBoundsTracking(phoneStatusBarView, axDynamicBarChipViewModel)
+                addDynamicBarToCenter(phoneStatusBarView, axDynamicBarChipViewModel, context)
                 onViewCreated(phoneStatusBarView)
                 phoneStatusBarView
             },
@@ -492,7 +496,8 @@ private fun addStartSideComposable(
                     }
 
                 val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
-                if (axEnabled) {
+                val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
+                if (axEnabled && axPosition == AxDynamicBarSettings.CHIP_POSITION_START) {
                     AxDynamicBarChip(
                         viewModel = axDynamicBarChipViewModel,
                         modifier = Modifier.widthIn(max = chipsMaxWidth),
@@ -702,6 +707,73 @@ private fun bindRegionSamplingViewModel(
             awaitCancellation()
         }
     }
+}
+
+/**
+ * Tracks the clock view's right edge (in screen pixels) and pushes it into
+ * [AxDynamicBarChipViewModel] so it can compute exactly how many notification icons fit
+ * between the clock and the chip without any hardcoded estimates.
+ */
+private fun setupDynamicBarClockBoundsTracking(
+    phoneStatusBarView: PhoneStatusBarView,
+    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+) {
+    val clockView = phoneStatusBarView.requireViewById<View>(R.id.clock)
+    val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+        axDynamicBarChipViewModel.updateClockBoundsRight(v.boundsOnScreen.right)
+    }
+    clockView.addOnLayoutChangeListener(listener)
+    // Push the initial value immediately in case layout doesn't change after attachment.
+    clockView.post {
+        axDynamicBarChipViewModel.updateClockBoundsRight(clockView.boundsOnScreen.right)
+    }
+}
+
+/**
+ * Adds [AxDynamicBarChip] to the centered overlay area of the status bar. The chip is only visible
+ * when the chip-position setting is [AxDynamicBarSettings.CHIP_POSITION_CENTER].
+ */
+private fun addDynamicBarToCenter(
+    phoneStatusBarView: PhoneStatusBarView,
+    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+    context: Context,
+) {
+    val centeredArea =
+        phoneStatusBarView.requireViewById<AlphaOptimizedLinearLayout>(R.id.centered_area)
+
+    val composeView =
+        ComposeView(context).apply {
+            layoutParams =
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                )
+
+            setViewCompositionStrategy(
+                if (SceneContainerFlag.isEnabled) {
+                    ViewCompositionStrategy.Default
+                } else {
+                    ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+                }
+            )
+
+            setContent {
+                PlatformTheme {
+                    val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
+                    val axPosition by axDynamicBarChipViewModel.interactor.settings.chipPosition.collectAsState()
+                    if (axEnabled && axPosition == AxDynamicBarSettings.CHIP_POSITION_CENTER) {
+                        Box(
+                            modifier = Modifier.fillMaxHeight(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AxDynamicBarChip(viewModel = axDynamicBarChipViewModel)
+                        }
+                    }
+                }
+            }
+        }
+
+    centeredArea.addView(composeView)
 }
 
 /**

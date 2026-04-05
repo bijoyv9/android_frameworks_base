@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 @SysUISingleton
@@ -58,6 +60,12 @@ constructor(
     @Volatile private var notifAlertJob: Job? = null
 
     private val dismissedEventIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Tracks the key of the notification alert currently being displayed or queued.
+     * Used to deduplicate redundant updates for the same notification (e.g., progress ticks).
+     */
+    @Volatile private var activeAlertKey: String? = null
 
     override var onFocusableRequested: ((Boolean) -> Unit)? = null
 
@@ -92,6 +100,11 @@ constructor(
     companion object {
         private const val TAG = "AxDynamicBarInteractor"
         private const val NOTIF_ALERT_DURATION_MS = 4500L
+        /**
+         * Debounce window for rapid notification arrivals. Notifications arriving within
+         * this window are batched into a single alert, preventing UI flicker and timer thrashing.
+         */
+        private const val NOTIF_DEBOUNCE_MS = 300L
 
         private fun IslandEvent.Notification.isActiveCall(): Boolean {
             val extras = sbn.notification?.extras ?: return false
@@ -130,17 +143,28 @@ constructor(
             }
         }
 
+        // Debounced notification flow: collects notifications with a quiet window to batch
+        // rapid arrivals (group chats, batch syncs) into a single alert + coalesce update.
+        // This prevents UI flicker, excessive state updates, and alert timer thrashing.
         applicationScope.launch {
-            repository.notification.notificationFlow.collect { notification ->
-                repository.notification.coalesceNotification(notification)
-                showNotificationAlert(notification)
-            }
+            repository.notification.notificationFlow
+                .onEach { notification ->
+                    // Always coalesce immediately so the event list stays current
+                    repository.notification.coalesceNotification(notification)
+                }
+                .debounce(NOTIF_DEBOUNCE_MS)
+                .collect { notification ->
+                    showNotificationAlert(notification)
+                }
         }
 
         applicationScope.launch {
             repository.notification.notificationRemovedFlow.collect { key ->
                 val alert = _uiState.value.notificationAlert ?: return@collect
-                if (alert.sbn.key == key) dismissNotificationAlert()
+                if (alert.sbn.key == key) {
+                    activeAlertKey = null
+                    dismissNotificationAlert()
+                }
             }
         }
 
@@ -427,6 +451,7 @@ constructor(
     fun dismissNotificationAlert() {
         notifAlertJob?.cancel()
         notifAlertJob = null
+        activeAlertKey = null
         val current = _uiState.value
         if (current.notificationAlert != null) {
             _uiState.value = current.copy(notificationAlert = null)
@@ -460,14 +485,24 @@ constructor(
         val hasProgress = notification.progress >= 0 || notification.isProgressIndeterminate
         val isSameKey = existingAlert != null && existingAlert.sbn.key == notification.sbn.key
 
-        if (isSameKey && hasProgress) {
-            _uiState.value = current.copy(notificationAlert = notification)
+        // Deduplicate redundant updates for the same notification.
+        // Progress updates for the same notification are allowed through (e.g., download bar).
+        if (isSameKey && !hasProgress) {
+            // Same notification already showing with no progress change — skip to avoid churn.
             return
         }
 
-        notifAlertJob?.cancel()
-        _uiState.value = current.copy(notificationAlert = notification)
+        // Track the active alert key for deduplication
+        activeAlertKey = notification.sbn.key
 
+        notifAlertJob?.cancel()
+        _uiState.value = current.copy(
+            notificationAlert = notification,
+            manuallyHidden = false,
+            islandState = if (current.events.isNotEmpty() || current.islandState == IslandState.CHIP) IslandState.CHIP else current.islandState,
+        )
+
+        // Don't auto-dismiss progress notifications (downloads, installs, etc.)
         if (hasProgress) return
 
         val duration =
@@ -480,7 +515,26 @@ constructor(
         }
     }
 
-    override fun stopScreenRecording() = repository.screenRecord.stopRecording()
+    @Volatile private var pendingShowAfterStop: Boolean = false
+
+    override fun stopScreenRecording() {
+        repository.screenRecord.stopRecording()
+        // Hide the chip briefly so it cleanly exits without flashing
+        // intermediate events before the "recording saved" notification arrives.
+        pendingShowAfterStop = true
+        _uiState.value = _uiState.value.copy(islandState = IslandState.HIDDEN, manuallyHidden = true)
+        applicationScope.launch {
+            delay(1500)
+            if (pendingShowAfterStop) {
+                pendingShowAfterStop = false
+                val updated = _uiState.value
+                _uiState.value = updated.copy(
+                    islandState = if (updated.events.isNotEmpty()) IslandState.CHIP else IslandState.HIDDEN,
+                    manuallyHidden = false,
+                )
+            }
+        }
+    }
 
     override fun togglePlayPause() = repository.media.togglePlayPause()
 

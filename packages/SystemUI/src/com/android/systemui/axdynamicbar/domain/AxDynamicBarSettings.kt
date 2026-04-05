@@ -27,6 +27,9 @@ class AxDynamicBarSettings @Inject constructor(
         const val KEY_EVENTS = "ax_dynamic_bar_events"
         const val KEY_KEYGUARD_ENABLED = "ax_dynamic_bar_keyguard_enabled"
         const val KEY_COMPACT_NOTIFICATIONS = "ax_dynamic_bar_compact_notifications"
+        const val KEY_CHIP_POSITION = "ax_dynamic_bar_chip_position"
+        const val CHIP_POSITION_START = 0
+        const val CHIP_POSITION_CENTER = 1
     }
 
     private val _isEnabled = MutableStateFlow(false)
@@ -43,6 +46,9 @@ class AxDynamicBarSettings @Inject constructor(
 
     private val _disabledEventTypes = MutableStateFlow<Set<String>>(emptySet())
     val disabledEventTypes: StateFlow<Set<String>> = _disabledEventTypes.asStateFlow()
+
+    private val _chipPosition = MutableStateFlow(CHIP_POSITION_START)
+    val chipPosition: StateFlow<Int> = _chipPosition.asStateFlow()
 
     private val settingsObserver =
         object : ContentObserver(mainHandler) {
@@ -81,6 +87,12 @@ class AxDynamicBarSettings @Inject constructor(
             settingsObserver,
             UserHandle.USER_ALL,
         )
+        secureSettings.registerContentObserverForUserSync(
+            KEY_CHIP_POSITION,
+            false,
+            settingsObserver,
+            UserHandle.USER_ALL,
+        )
         globalSettings.registerContentObserverSync(
             Global.HEADS_UP_NOTIFICATIONS_ENABLED,
             false,
@@ -102,6 +114,9 @@ class AxDynamicBarSettings @Inject constructor(
             secureSettings.getIntForUser(KEY_KEYGUARD_ENABLED, 1, UserHandle.USER_CURRENT) == 1
         _compactNotifications.value =
             secureSettings.getIntForUser(KEY_COMPACT_NOTIFICATIONS, 1, UserHandle.USER_CURRENT) == 1
+        _chipPosition.value =
+            secureSettings.getIntForUser(KEY_CHIP_POSITION, CHIP_POSITION_START, UserHandle.USER_CURRENT)
+                .coerceIn(CHIP_POSITION_START, CHIP_POSITION_CENTER)
         _isHeadsUpEnabled.value =
             globalSettings.getInt(Global.HEADS_UP_NOTIFICATIONS_ENABLED, 1) == 1
 
