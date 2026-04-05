@@ -87,8 +87,9 @@ fun AxDynamicBarChip(
 ) {
     val state by viewModel.chipState.collectAsStateWithLifecycle()
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
+    val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
     val keyguardCarrier by viewModel.keyguardCarrierText.collectAsStateWithLifecycle()
-    
+
     val carrierName = if (isOnKeyguard && ignoreKeyguard) keyguardCarrier.takeIf { it.isNotBlank() } else null
     val screenWidthPx = with(LocalDensity.current) {
         LocalConfiguration.current.screenWidthDp.dp.toPx()
@@ -99,7 +100,7 @@ fun AxDynamicBarChip(
     val motionScheme = MaterialTheme.motionScheme
 
     AnimatedVisibility(
-        visible = state != null && (ignoreKeyguard || !isOnKeyguard),
+        visible = state != null && (ignoreKeyguard || !isOnKeyguard) && !isExpanded,
         enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec()),
         exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
         modifier = modifier

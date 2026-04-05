@@ -281,7 +281,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
 
     val originX = if (chipPosition == AxDynamicBarSettings.CHIP_POSITION_CENTER) 0.5f else chipX
     val origin = TransformOrigin(originX, 0f)
-    
+
     val chipAlignment = BiasAlignment(
         horizontalBias = originX * 2f - 1f,  
         verticalBias = -1f,                    
@@ -289,16 +289,8 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
 
     AnimatedVisibility(
         visibleState = expandedVisible,
-        enter = fadeIn(tween(250)) + scaleIn(
-            animationSpec = tween(350),
-            initialScale = 0.4f,
-            transformOrigin = origin,
-        ),
-        exit = fadeOut(tween(200)) + scaleOut(
-            animationSpec = tween(250),
-            targetScale = 0.4f,
-            transformOrigin = origin,
-        ),
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(200)),
     ) {
         
         Box(

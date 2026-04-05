@@ -1,11 +1,16 @@
 package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
@@ -31,16 +37,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.android.systemui.axdynamicbar.shared.IslandActions
 import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.axdynamicbar.shared.*
 import com.android.systemui.res.R
@@ -69,7 +81,7 @@ fun ExpandedIslandContent(
                 val base = events.filter { it !is IslandEvent.Notification }
                 val pinned = base.find { it.id == pinnedEventId }
                 if (pinned != null) {
-                    listOf(pinned) + base.filter { it.id != pinned.id }
+                    base.filter { it.id != pinned.id } + listOf(pinned)
                 } else {
                     base
                 }
@@ -149,12 +161,24 @@ fun ExpandedIslandContent(
                 }
             }
         } else {
-            items(filteredEvents, key = { it.id }) { event ->
-                MagneticSwipeToDismiss(
-                    onDismiss = { interactor.dismissEvent(event) },
-                    modifier = Modifier.animateItem(),
-                ) {
-                    ExpandedEventCard(event, interactor, hapticsViewModelFactory)
+            val total = filteredEvents.size
+            itemsIndexed(filteredEvents, key = { _, event -> event.id }) { index, event ->
+                if (index == total - 1) {
+                    SeedCard(
+                        event = event,
+                        interactor = interactor,
+                        hapticsViewModelFactory = hapticsViewModelFactory,
+                        onDismiss = { interactor.dismissEvent(event) },
+                    )
+                } else {
+                    val distanceFromSeed = total - 1 - index
+                    StaggeredCard(
+                        event = event,
+                        interactor = interactor,
+                        hapticsViewModelFactory = hapticsViewModelFactory,
+                        onDismiss = { interactor.dismissEvent(event) },
+                        delayMs = 140L + distanceFromSeed * 80L,
+                    )
                 }
             }
         }
@@ -250,5 +274,68 @@ internal fun PrimaryCard(content: @Composable () -> Unit) {
                 .padding(SpaceXxl)
     ) {
         content()
+    }
+}
+
+@Composable
+private fun SeedCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+    onDismiss: () -> Unit,
+) {
+    val scaleX = remember { Animatable(0.38f) }
+    val scaleY = remember { Animatable(0.32f) }
+
+    LaunchedEffect(Unit) {
+        delay(80L)
+        launch { scaleX.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMedium)) }
+        scaleY.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMedium))
+    }
+
+    Box(
+        modifier = Modifier
+            .animateItem()
+            .graphicsLayer {
+                this.scaleX = scaleX.value
+                this.scaleY = scaleY.value
+                transformOrigin = TransformOrigin(0.5f, 0f)
+            }
+    ) {
+        MagneticSwipeToDismiss(
+            onDismiss = onDismiss,
+        ) {
+            ExpandedEventCard(event, interactor, hapticsViewModelFactory)
+        }
+    }
+}
+
+@Composable
+private fun StaggeredCard(
+    event: IslandEvent,
+    interactor: IslandActions,
+    hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+    onDismiss: () -> Unit,
+    delayMs: Long,
+) {
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        delay(delayMs)
+        visible = true
+    }
+
+    // No exit spec: visible is never set back to false — dismissal is handled
+    // by MagneticSwipeToDismiss (swipe gesture) + animateItem() (slot removal).
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 3 },
+    ) {
+        MagneticSwipeToDismiss(
+            onDismiss = onDismiss,
+            modifier = Modifier.animateItem(),
+        ) {
+            ExpandedEventCard(event, interactor, hapticsViewModelFactory)
+        }
     }
 }

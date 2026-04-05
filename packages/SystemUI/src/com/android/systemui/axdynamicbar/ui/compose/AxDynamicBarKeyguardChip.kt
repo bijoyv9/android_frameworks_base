@@ -2,6 +2,7 @@ package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -202,7 +203,7 @@ fun AxDynamicBarKeyguardChip(
                         )) togetherWith (fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(
                             targetScale = 0.95f,
                             animationSpec = motionScheme.fastSpatialSpec(),
-                        ))).using(sizeTransform = null)
+                        ))).using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> motionScheme.defaultSpatialSpec() }))
                     },
                     contentKey = { it::class.simpleName },
                     label = "keyguard_chip_event",
