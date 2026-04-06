@@ -123,7 +123,6 @@ fun ExpandedIslandContent(
                     item(key = event.id) {
                         MagneticSwipeToDismiss(
                             onDismiss = { interactor.dismissEvent(event) },
-                            modifier = Modifier.animateItem(),
                         ) {
                             PrimaryCard { NotificationExpanded(event, interactor) }
                         }
@@ -134,7 +133,6 @@ fun ExpandedIslandContent(
                     item(key = "group_$pkg") {
                         MagneticSwipeToDismiss(
                             onDismiss = { group.forEach { interactor.dismissEvent(it) } },
-                            modifier = Modifier.animateItem(),
                         ) {
                             PrimaryCard {
                                 NotificationGroupCard(
@@ -152,7 +150,9 @@ fun ExpandedIslandContent(
             items(filteredEvents, key = { it.id }) { event ->
                 MagneticSwipeToDismiss(
                     onDismiss = { interactor.dismissEvent(event) },
-                    modifier = Modifier.animateItem(),
+                    // animateItem() intentionally NOT used — it fires exit animations on all
+                    // items simultaneously when the parent AnimatedVisibility collapses,
+                    // causing a visible flash. The parent overlay animates the panel out cleanly.
                 ) {
                     if (event is IslandEvent.Media) {
                         MediaCard(event, interactor)
