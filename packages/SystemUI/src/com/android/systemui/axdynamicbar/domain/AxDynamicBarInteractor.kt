@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 @SysUISingleton
@@ -92,6 +94,11 @@ constructor(
     companion object {
         private const val TAG = "AxDynamicBarInteractor"
         private const val NOTIF_ALERT_DURATION_MS = 4500L
+        /**
+         * Debounce window for rapid notification arrivals. Notifications arriving within
+         * this window are batched into a single alert, preventing UI flicker and timer thrashing.
+         */
+        private const val NOTIF_DEBOUNCE_MS = 300L
 
         private fun IslandEvent.Notification.isActiveCall(): Boolean {
             val extras = sbn.notification?.extras ?: return false
@@ -130,11 +137,22 @@ constructor(
             }
         }
 
+        // Debounced notification flow: collects notifications with a quiet window to batch
+        // rapid arrivals (group chats, batch syncs) into a single alert + coalesce update.
+        // This prevents UI flicker, excessive state updates, and alert timer thrashing.
         applicationScope.launch {
-            repository.notification.notificationFlow.collect { notification ->
-                repository.notification.coalesceNotification(notification)
-                showNotificationAlert(notification)
-            }
+            repository.notification.notificationFlow
+                .onEach { notification ->
+                    // Always coalesce immediately so the event list stays current
+                    repository.notification.coalesceNotification(notification)
+                }
+                .debounce { notification ->
+                    val hasProgress = notification.progress >= 0 || notification.isProgressIndeterminate
+                    if (hasProgress) 0L else NOTIF_DEBOUNCE_MS
+                }
+                .collect { notification ->
+                    showNotificationAlert(notification)
+                }
         }
 
         applicationScope.launch {
@@ -267,6 +285,8 @@ constructor(
                             when {
                                 e is IslandEvent.Media && old is IslandEvent.Media ->
                                     e.track != old.track || e.artist != old.artist
+                                e is IslandEvent.PromotedOngoing && old is IslandEvent.PromotedOngoing ->
+                                    hasSignificantPromotedOngoingChange(old, e)
                                 else -> false
                             }
                         }
@@ -296,6 +316,8 @@ constructor(
                                     when {
                                         e is IslandEvent.Media && old is IslandEvent.Media ->
                                             e.track != old.track || e.artist != old.artist
+                                        e is IslandEvent.PromotedOngoing && old is IslandEvent.PromotedOngoing ->
+                                            hasSignificantPromotedOngoingChange(old, e)
                                         else -> false
                                     }
                                 }
@@ -458,16 +480,15 @@ constructor(
         ) return
 
         val hasProgress = notification.progress >= 0 || notification.isProgressIndeterminate
-        val isSameKey = existingAlert != null && existingAlert.sbn.key == notification.sbn.key
-
-        if (isSameKey && hasProgress) {
-            _uiState.value = current.copy(notificationAlert = notification)
-            return
-        }
 
         notifAlertJob?.cancel()
-        _uiState.value = current.copy(notificationAlert = notification)
+        _uiState.value = current.copy(
+            notificationAlert = notification,
+            manuallyHidden = false,
+            islandState = if (current.events.isNotEmpty() || current.islandState == IslandState.CHIP) IslandState.CHIP else current.islandState,
+        )
 
+        // Don't auto-dismiss progress notifications (downloads, installs, etc.)
         if (hasProgress) return
 
         val duration =
@@ -562,6 +583,18 @@ constructor(
         return current.pinnedEventIndex.coerceAtMost(
             (events.size - 1).coerceAtLeast(0)
         )
+    }
+
+    private fun hasSignificantPromotedOngoingChange(
+        old: IslandEvent.PromotedOngoing,
+        new: IslandEvent.PromotedOngoing,
+    ): Boolean {
+        return new.progress != old.progress ||
+            new.isIndeterminate != old.isIndeterminate ||
+            new.shortText != old.shortText ||
+            new.title != old.title ||
+            new.text != old.text ||
+            new.actions.map { it.label.toString() } != old.actions.map { it.label.toString() }
     }
 
     private fun mapIndicationType(type: Int): IslandEvent.KeyguardIndication.IndicationType? =

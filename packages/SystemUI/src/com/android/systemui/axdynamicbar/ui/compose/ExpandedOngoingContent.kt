@@ -72,34 +72,79 @@ private fun resolveRemoteViews(ctx: Context, notification: Notification): Remote
 private fun SbnContentView(sbn: StatusBarNotification, fallback: @Composable () -> Unit) {
     var failed by remember(sbn.key) { mutableStateOf(false) }
     if (!failed) {
-        key(sbn.key) {
-            AndroidView(
-                factory = { ctx ->
-                    FrameLayout(ctx).apply {
-                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        AndroidView(
+            factory = { ctx ->
+                FrameLayout(ctx).apply {
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    try {
+                        val rv = resolveRemoteViews(ctx, sbn.notification)
+                        val inflated = rv?.apply(ctx, this)
+                        if (inflated != null) {
+                            prepareForIsland(inflated)
+                            addView(
+                                inflated,
+                                FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                                ),
+                            )
+                        } else {
+                            failed = true
+                        }
+                    } catch (_: Exception) {
+                        failed = true
+                    }
+                }
+            },
+            update = { container ->
+                // Reapply updated RemoteViews (e.g. download progress) without
+                // re-inflating the entire view hierarchy.
+                val rv = resolveRemoteViews(container.context, sbn.notification)
+                val existingChild = container.getChildAt(0)
+                when {
+                    rv != null && existingChild != null -> {
                         try {
-                            val rv = resolveRemoteViews(ctx, sbn.notification)
-                            val inflated = rv?.apply(ctx, this)
-                            if (inflated != null) {
+                            rv.reapply(container.context, existingChild)
+                            prepareForIsland(existingChild)
+                        } catch (_: Exception) {
+                            // Layout changed (e.g. different notification) — full re-inflate
+                            container.removeAllViews()
+                            try {
+                                val inflated = rv.apply(container.context, container)
                                 prepareForIsland(inflated)
-                                addView(
+                                container.addView(
                                     inflated,
                                     FrameLayout.LayoutParams(
                                         FrameLayout.LayoutParams.MATCH_PARENT,
                                         FrameLayout.LayoutParams.WRAP_CONTENT,
                                     ),
                                 )
-                            } else {
+                            } catch (_: Exception) {
                                 failed = true
                             }
+                        }
+                    }
+                    rv != null -> {
+                        container.removeAllViews()
+                        try {
+                            val inflated = rv.apply(container.context, container)
+                            prepareForIsland(inflated)
+                            container.addView(
+                                inflated,
+                                FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                                ),
+                            )
                         } catch (_: Exception) {
                             failed = true
                         }
                     }
-                },
-                modifier = Modifier.fillMaxWidth().clip(ShapeIconMedium),
-            )
-        }
+                    else -> container.removeAllViews()
+                }
+            },
+            modifier = Modifier.fillMaxWidth().clip(ShapeIconMedium),
+        )
     } else {
         fallback()
     }
