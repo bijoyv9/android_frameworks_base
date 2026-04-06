@@ -289,21 +289,20 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
         verticalBias = -1f,                    
     )
 
-    AnimatedVisibility(
-        visibleState = expandedVisible,
-        enter = fadeIn(tween(250)) + scaleIn(
-            animationSpec = tween(350),
-            initialScale = 0.4f,
-            transformOrigin = origin,
-        ),
-        exit = fadeOut(tween(200)) + scaleOut(
-            animationSpec = tween(250),
-            targetScale = 0.4f,
-            transformOrigin = origin,
-        ),
-    ) {
-        
-        Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visibleState = expandedVisible,
+            enter = fadeIn(tween(250)) + scaleIn(
+                animationSpec = tween(350),
+                initialScale = 0.4f,
+                transformOrigin = origin,
+            ),
+            exit = fadeOut(tween(200)) + scaleOut(
+                animationSpec = tween(250),
+                targetScale = 0.4f,
+                transformOrigin = origin,
+            ),
+        ) {
             // Full-screen tap-to-dismiss + cards
             Box(
                 modifier = Modifier
@@ -344,16 +343,20 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                         events = state.allEvents,
                         interactor = viewModel.interactor,
                         onCollapse = { viewModel.collapsePanel() },
+                        isExpanded = isExpanded,
                         pinnedEventId = state.event.id,
                         hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
                     )
                 }
             }
+        }
 
-            // Fixed dismiss strip — sits in the status bar area where the chip was
+        // Fixed dismiss strip — sits in the status bar area where the chip was
+        // Only show if expanded or expanding
+        if (isExpanded || expandedVisible.currentState || expandedVisible.targetState) {
             val stripHeight = if (statusBarHeightPx > 0) {
                 with(density) { statusBarHeightPx.toDp() }
-            } else 28.dp
+            } else 32.dp
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -368,10 +371,11 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
             ) {
                 Box(
                     modifier = Modifier
-                        .width(28.dp)
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.15f))
+                        .padding(top = 8.dp) // Move down from extreme edge
+                        .width(40.dp)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(2.5.dp))
+                        .background(Color.White.copy(alpha = 0.45f))
                 )
             }
         }

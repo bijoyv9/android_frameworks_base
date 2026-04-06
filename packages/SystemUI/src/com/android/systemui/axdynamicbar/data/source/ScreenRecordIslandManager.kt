@@ -11,6 +11,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,12 +54,16 @@ constructor(
                                 val existing = _screenRecordEvent.value
                                 val startMs = when {
                                     notifMs > 0L -> notifMs
-                                    existing != null && !existing.isCountdown -> existing.startTimeMs
+                                    existing != null -> existing.startTimeMs
                                     else -> System.currentTimeMillis()
                                 }
                                 if (existing != null && !existing.isCountdown && existing.startTimeMs == startMs) {
                                     existing
                                 } else {
+                                    // Small delay to let the countdown disappear and transition smoothly
+                                    if (existing?.isCountdown == true) {
+                                        delay(500)
+                                    }
                                     IslandEvent.ScreenRecording(startTimeMs = startMs)
                                 }
                             }

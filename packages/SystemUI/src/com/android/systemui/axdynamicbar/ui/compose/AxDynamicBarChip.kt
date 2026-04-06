@@ -113,8 +113,18 @@ fun AxDynamicBarChip(
 
     val motionScheme = MaterialTheme.motionScheme
 
+    val chipVisible = state != null && !isExpanded && (ignoreKeyguard || !isOnKeyguard)
+    val actualVisible = remember { androidx.compose.animation.core.MutableTransitionState(false) }
+    androidx.compose.runtime.LaunchedEffect(chipVisible) {
+        if (chipVisible) {
+            // Delay reappearance so panel can start its exit animation first
+            kotlinx.coroutines.delay(150)
+        }
+        actualVisible.targetState = chipVisible
+    }
+
     AnimatedVisibility(
-        visible = state != null && !isExpanded && (ignoreKeyguard || !isOnKeyguard),
+        visibleState = actualVisible,
         enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec()),
         exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
         modifier = modifier

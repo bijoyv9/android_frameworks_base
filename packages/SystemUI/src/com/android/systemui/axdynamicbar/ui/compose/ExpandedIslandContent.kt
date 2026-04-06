@@ -62,6 +62,7 @@ fun ExpandedIslandContent(
     events: List<IslandEvent>,
     interactor: IslandActions,
     onCollapse: () -> Unit,
+    isExpanded: Boolean = true,
     expandedFilter: String? = null,
     pinnedEventId: String? = null,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
@@ -165,6 +166,7 @@ fun ExpandedIslandContent(
                     SeedCard(
                         event = event,
                         interactor = interactor,
+                        isExpanded = isExpanded,
                         hapticsViewModelFactory = hapticsViewModelFactory,
                         onDismiss = { interactor.dismissEvent(event) },
                         modifier = Modifier.animateItem(),
@@ -174,9 +176,11 @@ fun ExpandedIslandContent(
                     StaggeredCard(
                         event = event,
                         interactor = interactor,
+                        isExpanded = isExpanded,
                         hapticsViewModelFactory = hapticsViewModelFactory,
                         onDismiss = { interactor.dismissEvent(event) },
-                        enterDelayMs = index * 70L,
+                        index = index,
+                        totalCount = filteredEvents.size,
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -279,15 +283,14 @@ private fun ExpandedEventCard(
 private fun SeedCard(
     event: IslandEvent,
     interactor: IslandActions,
+    isExpanded: Boolean,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
     val scaleSpec = spring<Float>(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium)
-    val scaleX by animateFloatAsState(if (entered) 1f else 0.38f, scaleSpec, label = "seedScaleX")
-    val scaleY by animateFloatAsState(if (entered) 1f else 0.28f, scaleSpec, label = "seedScaleY")
+    val scaleX by animateFloatAsState(if (isExpanded) 1f else 0.38f, scaleSpec, label = "seedScaleX")
+    val scaleY by animateFloatAsState(if (isExpanded) 1f else 0.28f, scaleSpec, label = "seedScaleY")
 
     Box(
         modifier = modifier
@@ -311,16 +314,25 @@ private fun SeedCard(
 private fun StaggeredCard(
     event: IslandEvent,
     interactor: IslandActions,
+    isExpanded: Boolean,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
     onDismiss: () -> Unit,
-    enterDelayMs: Long,
+    index: Int,
+    totalCount: Int,
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        delay(enterDelayMs)
-        visible = true
+    LaunchedEffect(isExpanded) {
+        if (isExpanded) {
+            delay(index * 70L)
+            visible = true
+        } else {
+            // Reverse stagger: last item starts exiting first
+            val reverseIndex = totalCount - 1 - index
+            delay(reverseIndex * 40L)
+            visible = false
+        }
     }
 
     AnimatedVisibility(

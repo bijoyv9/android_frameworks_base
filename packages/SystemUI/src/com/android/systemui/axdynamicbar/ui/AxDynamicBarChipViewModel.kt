@@ -132,15 +132,23 @@ constructor(
     }
 
     private val _chipWidthPx = MutableStateFlow(0)
+    private var lastKnownWidthPx = 0
 
     fun updateChipWidthPx(widthPx: Int) {
-        if (widthPx > 0) _chipWidthPx.value = widthPx
+        if (widthPx > 0) {
+            _chipWidthPx.value = widthPx
+            lastKnownWidthPx = widthPx
+        }
     }
 
     private val _clockBoundsRight = MutableStateFlow(0)
+    private var lastKnownClockRight = 0
 
     fun updateClockBoundsRight(px: Int) {
-        if (px > 0) _clockBoundsRight.value = px
+        if (px > 0) {
+            _clockBoundsRight.value = px
+            lastKnownClockRight = px
+        }
     }
 
     private val _isExpanded = MutableStateFlow(false)
@@ -242,21 +250,31 @@ constructor(
         val position   = args[1] as Int
         val widthPx    = (args[2] as Int).toFloat()
         val centerFrac = args[3] as Float
-        val clockRight = args[4] as Int
+        val clockRight = (args[4] as Int).toFloat()
         val chip       = args[5] as AxDynamicBarChipState?
         val onKeyguard = args[6] as Boolean
-        // On keyguard, notifications are filtered — no need to constrain icons for a chip
-        // that won't show notifications anyway. Prevents icon count flicker during transitions.
-        if (!enabled || chip == null || position != AxDynamicBarSettings.CHIP_POSITION_CENTER || clockRight == 0 || widthPx == 0f || onKeyguard) {
+
+        // On keyguard, notifications are filtered — no need to constrain icons.
+        // If disabled or not in center mode, no capping needed.
+        if (!enabled || position != AxDynamicBarSettings.CHIP_POSITION_CENTER || onKeyguard) {
             return@combine Int.MAX_VALUE
         }
+
         val override = SystemProperties.getInt(PROP_NOTIF_ICON_LIMIT, -1)
         if (override >= 0) return@combine override
+
+        // Use last known values if current ones are zero (e.g., during shade expansion)
+        // to prevent icons from jumping to full count and overlapping the pill area.
+        val effectiveWidth = if (widthPx > 0) widthPx else lastKnownWidthPx.toFloat()
+        val effectiveClock = if (clockRight > 0) clockRight else lastKnownClockRight.toFloat()
+
+        if (effectiveWidth == 0f || effectiveClock == 0f) return@combine Int.MAX_VALUE
+
         val screenWidthPx = context.resources.displayMetrics.widthPixels.toFloat()
-        val chipLeftEdgePx = centerFrac * screenWidthPx - widthPx / 2f
+        val chipLeftEdgePx = centerFrac * screenWidthPx - effectiveWidth / 2f
         val iconSlotPx = context.resources
             .getDimensionPixelSize(R.dimen.status_bar_icon_size_sp).toFloat()
-        val availablePx = (chipLeftEdgePx - clockRight - iconSlotPx).coerceAtLeast(0f)
+        val availablePx = (chipLeftEdgePx - effectiveClock - iconSlotPx).coerceAtLeast(0f)
         (availablePx / iconSlotPx).toInt()
     }.stateIn(applicationScope, SharingStarted.Eagerly, Int.MAX_VALUE)
 
