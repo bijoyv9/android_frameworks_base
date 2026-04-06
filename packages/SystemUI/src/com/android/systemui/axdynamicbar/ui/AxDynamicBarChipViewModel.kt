@@ -129,6 +129,10 @@ constructor(
 
     private val _isExpanded = MutableStateFlow(false)
     val isExpanded: StateFlow<Boolean> = _isExpanded.asStateFlow()
+
+    private val _expandedFilter = MutableStateFlow<String?>(null)
+    val expandedFilter: StateFlow<String?> = _expandedFilter.asStateFlow()
+
     @Volatile private var collapseOnNullJob: Job? = null
 
     val isKeyguardExpanded: StateFlow<Boolean> =
@@ -166,8 +170,11 @@ constructor(
         interactor.dozeAmount.map { it > 0f }.distinctUntilChanged().onEach { if (it) _isExpanded.value = false }.launchIn(applicationScope)
     }
 
-    fun expandPanel() {
-        if (chipState.value != null) _isExpanded.value = true
+    fun expandPanel(filter: String? = null) {
+        if (chipState.value != null) {
+            _expandedFilter.value = filter
+            _isExpanded.value = true
+        }
     }
 
     fun collapsePanel() {
@@ -176,6 +183,10 @@ constructor(
 
     fun togglePanel() {
         if (_isExpanded.value) collapsePanel() else expandPanel()
+    }
+
+    fun longPressExpand(eventId: String) {
+        expandPanel(filter = eventId)
     }
 
     fun cycleNext() = interactor.cycleNext()

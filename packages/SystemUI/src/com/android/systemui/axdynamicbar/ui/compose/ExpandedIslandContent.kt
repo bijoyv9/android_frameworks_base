@@ -61,8 +61,11 @@ fun ExpandedIslandContent(
     val filteredEvents =
         remember(events, expandedFilter, pinnedEventId) {
             if (expandedFilter != null) {
-                events.filter {
-                    EVENT_TYPE_IDS[it::class.java] == expandedFilter
+                val matchingEvent = events.find { it.id == expandedFilter }
+                if (matchingEvent != null) {
+                    listOf(matchingEvent)
+                } else {
+                    events.filter { EVENT_TYPE_IDS[it::class.java] == expandedFilter }
                 }
             } else {
 
@@ -242,4 +245,3 @@ internal fun PrimaryCard(content: @Composable () -> Unit) {
         content()
     }
 }
-

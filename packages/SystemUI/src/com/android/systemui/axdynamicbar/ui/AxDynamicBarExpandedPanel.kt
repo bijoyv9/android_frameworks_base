@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
@@ -249,6 +250,7 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     } else 0.dp
     val chipState by viewModel.chipState.collectAsStateWithLifecycle()
     val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
+    val expandedFilter by viewModel.expandedFilter.collectAsStateWithLifecycle()
     val uiState by viewModel.interactor.uiState.collectAsStateWithLifecycle()
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
     val chipX by viewModel.chipCenterXFraction.collectAsStateWithLifecycle()
@@ -269,6 +271,19 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     LaunchedEffect(showNotif) {
         delay(16)
         notifVisible.targetState = showNotif
+    }
+
+    var latchedExpandedState by remember { mutableStateOf<AxDynamicBarChipState?>(null) }
+    var latchedExpandedFilter by remember { mutableStateOf<String?>(null) }
+
+    if (isExpanded && chipState != null) {
+        latchedExpandedState = chipState
+        latchedExpandedFilter = expandedFilter
+    }
+
+    if (!expandedVisible.currentState && !expandedVisible.targetState) {
+        latchedExpandedState = null
+        latchedExpandedFilter = null
     }
 
     val originX = chipX
@@ -327,11 +342,12 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                 .padding(top = topPad),
             contentAlignment = chipAlignment,
         ) {
-            chipState?.let { state ->
+            latchedExpandedState?.let { state ->
                 ExpandedIslandContent(
                     events = state.allEvents,
                     interactor = viewModel.interactor,
                     onCollapse = { viewModel.collapsePanel() },
+                    expandedFilter = latchedExpandedFilter,
                     pinnedEventId = state.event.id,
                     hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
                 )
@@ -393,4 +409,3 @@ private class PanelLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.handleLifecycleEvent(event)
     }
 }
-
