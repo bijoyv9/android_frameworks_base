@@ -39,11 +39,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
+import android.app.Notification
+import android.app.PendingIntent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -292,7 +296,8 @@ private fun KeyguardChipBody(
                     when (event) {
                         is IslandEvent.Notification ->
                             viewModel.launchNotificationFromKeyguard(event)
-
+                        is IslandEvent.Call ->
+                            viewModel.launchCallDismissingKeyguard(event)
                         is IslandEvent.KeyguardIndication,
                         is IslandEvent.AppSwitch -> { }
                         else -> viewModel.togglePanel()
@@ -637,6 +642,16 @@ private fun KeyguardPrimaryText(event: IslandEvent, color: Color, modifier: Modi
             "${event.songTitle} · ${event.artist}".trimEnd(' ', '·', ' '), color, modifier,
         )
         is IslandEvent.KeyguardIndication -> MarqueeText(event.text, color, modifier)
+        is IslandEvent.Call -> {
+            if (!event.isIncoming) {
+                ElapsedTimeText(event.startTimeMs, color, modifier)
+            } else {
+                MarqueeText(
+                    event.callerName ?: event.title ?: stringResource(R.string.ax_dynamic_bar_incoming_call),
+                    color, modifier,
+                )
+            }
+        }
     }
 }
 
@@ -698,7 +713,7 @@ private fun SportsChipTeamBadge(name: String, icon: Drawable?, contentColor: Col
     }
 }
 
-private enum class ActionIcon { PLAY, PAUSE, STOP, SKIP_PREV, SKIP_NEXT }
+private enum class ActionIcon { PLAY, PAUSE, STOP, SKIP_PREV, SKIP_NEXT, ANSWER, HANGUP }
 
 private data class ChipAction(
     val icon: ActionIcon,
@@ -753,6 +768,34 @@ private fun actionsFor(event: IslandEvent): List<ChipAction> = when (event) {
     is IslandEvent.Casting -> listOf(
         ChipAction(ActionIcon.STOP) { vm, e, _ -> vm.dismissEvent(e) },
     )
+    is IslandEvent.Call -> {
+        val extras = event.sbn.notification?.extras
+        val answerPi = extras?.getParcelable(Notification.EXTRA_ANSWER_INTENT, PendingIntent::class.java)
+        val declinePi = extras?.getParcelable(Notification.EXTRA_DECLINE_INTENT, PendingIntent::class.java)
+        val hangUpPi = extras?.getParcelable(Notification.EXTRA_HANG_UP_INTENT, PendingIntent::class.java)
+
+        if (event.isIncoming) {
+            listOfNotNull(
+                event.actions.firstOrNull { a ->
+                    val pi = a.action.actionIntent
+                    (declinePi != null && pi == declinePi) || (hangUpPi != null && pi == hangUpPi)
+                }?.let { ChipAction(ActionIcon.HANGUP) { _, _, ctx -> it.action.actionIntent?.sendWithBal(ctx) } },
+                event.actions.firstOrNull { a ->
+                    answerPi != null && a.action.actionIntent == answerPi
+                }?.let { ChipAction(ActionIcon.ANSWER) { _, _, ctx -> it.action.actionIntent?.sendWithBal(ctx) } },
+            )
+        } else {
+            listOfNotNull(
+                event.actions.firstOrNull { a ->
+                    val pi = a.action.actionIntent
+                    val semantic = a.action.semanticAction
+                    val isMute = semantic == Notification.Action.SEMANTIC_ACTION_MUTE ||
+                        semantic == Notification.Action.SEMANTIC_ACTION_UNMUTE
+                    if (hangUpPi != null) pi == hangUpPi else !isMute
+                }?.let { ChipAction(ActionIcon.HANGUP) { _, _, ctx -> it.action.actionIntent?.sendWithBal(ctx) } },
+            )
+        }
+    }
     else -> emptyList()
 }
 
@@ -771,18 +814,29 @@ private fun ActionButton(
         ActionIcon.STOP -> Icons.Filled.Stop
         ActionIcon.SKIP_PREV -> Icons.Filled.SkipPrevious
         ActionIcon.SKIP_NEXT -> Icons.Filled.SkipNext
+        ActionIcon.ANSWER -> Icons.Filled.Call
+        ActionIcon.HANGUP -> Icons.Filled.CallEnd
+    }
+    val effectiveBg = when (icon) {
+        ActionIcon.ANSWER -> GreenAccent
+        ActionIcon.HANGUP -> RedAccent
+        else -> bgColor
+    }
+    val effectiveTint = when (icon) {
+        ActionIcon.ANSWER, ActionIcon.HANGUP -> chipContentColorOn(effectiveBg)
+        else -> color
     }
     Surface(
         onClick = onClick,
         modifier = Modifier.size(size),
         shape = CircleShape,
-        color = bgColor,
+        color = effectiveBg,
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size)) {
             Icon(
                 imageVector,
                 contentDescription = icon.name,
-                tint = color,
+                tint = effectiveTint,
                 modifier = Modifier.size(iconSize),
             )
         }

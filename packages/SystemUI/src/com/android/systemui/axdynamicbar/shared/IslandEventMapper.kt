@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Timer
@@ -178,6 +179,12 @@ internal fun eventStyleFor(event: IslandEvent): EventStyle = when (event) {
         accent = YellowAccent,
         icon = Icons.Filled.FlashlightOn,
         labelRes = R.string.ax_dynamic_bar_flashlight,
+    )
+    is IslandEvent.Call -> EventStyle(
+        accent = if (event.isIncoming) BlueAccent else GreenAccent,
+        icon = Icons.Filled.Phone,
+        labelRes = if (event.isIncoming) R.string.ax_dynamic_bar_incoming_call
+                   else R.string.ax_dynamic_bar_ongoing_call,
     )
     is IslandEvent.Notification -> EventStyle(
         accent = BlueAccent,

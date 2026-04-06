@@ -209,6 +209,7 @@ internal fun ExpandedEventContent(
         is IslandEvent.Alarm -> AlarmExpanded(event, interactor)
         is IslandEvent.Timer -> TimerExpanded(event, interactor)
         is IslandEvent.Stopwatch -> StopwatchExpanded(event, interactor)
+        is IslandEvent.Call -> CallExpanded(event, interactor)
         is IslandEvent.RingerMode -> RingerModeExpanded(event, interactor)
         is IslandEvent.Vpn -> VpnExpanded(event)
         is IslandEvent.Clipboard -> ClipboardExpanded(event, interactor)

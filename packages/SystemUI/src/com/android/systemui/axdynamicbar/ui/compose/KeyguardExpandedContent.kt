@@ -113,6 +113,7 @@ internal fun KeyguardExpandedContent(
             is IslandEvent.Stopwatch -> KeyguardStopwatchPanel(event, interactor)
             is IslandEvent.ScreenRecording -> KeyguardRecordingPanel(event, interactor)
             is IslandEvent.AudioRecording -> KeyguardAudioRecordingPanel(event, interactor)
+            is IslandEvent.Call -> KeyguardCallPanel(event, interactor)
             else -> KeyguardGenericPanel(event, interactor, hapticsViewModelFactory)
         }
     }
@@ -817,6 +818,20 @@ private fun KeyguardAudioRecordingPanel(event: IslandEvent.AudioRecording, inter
         }
     }
 }
+}
+
+@Composable
+private fun KeyguardCallPanel(event: IslandEvent.Call, interactor: IslandActions) {
+    KeyguardPanelSurface {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(SpaceSection),
+            verticalArrangement = Arrangement.spacedBy(SpaceLg),
+        ) {
+            CallExpanded(event, interactor)
+        }
+    }
 }
 
 @Composable

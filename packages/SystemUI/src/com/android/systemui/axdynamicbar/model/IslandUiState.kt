@@ -7,10 +7,11 @@ data class IslandUiState(
     val manuallyHidden: Boolean = false,
     val forceVisible: Boolean = false,
     val notificationAlert: IslandEvent.Notification? = null,
+    val callAlert: IslandEvent.Call? = null,
 ) {
 
     val shouldShow: Boolean
-        get() = islandState == IslandState.CHIP || notificationAlert != null
+        get() = islandState == IslandState.CHIP || notificationAlert != null || callAlert != null
 
     val isChip: Boolean
         get() = islandState == IslandState.CHIP

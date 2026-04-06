@@ -48,6 +48,7 @@ import com.android.systemui.shared.recents.utilities.Utilities
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.axdynamicbar.shared.ExpandedMaxWidth
 import com.android.systemui.axdynamicbar.ui.compose.ExpandedIslandContent
+import com.android.systemui.axdynamicbar.ui.compose.CallAlertCard
 import com.android.systemui.axdynamicbar.ui.compose.NotificationAlertCard
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
@@ -90,9 +91,12 @@ constructor(
             combine(
                 viewModel.isExpanded,
                 viewModel.interactor.uiState.map { it.notificationAlert },
+                viewModel.interactor.uiState.map { it.callAlert },
                 viewModel.isOnKeyguard,
-            ) { expanded, alert, onKeyguard ->
-                !onKeyguard && (expanded || alert != null)
+        ) { expanded, alert, callAlert, onKeyguard ->
+                // Call alerts must show even on keyguard — don't gate them behind !onKeyguard.
+                // Expanded panel and notification alerts remain suppressed on keyguard.
+                (!onKeyguard && (expanded || alert != null)) || callAlert != null
             }
 
         needsOverlay
@@ -255,14 +259,19 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
     val chipX by viewModel.chipCenterXFraction.collectAsStateWithLifecycle()
     val notifAlert = uiState.notificationAlert
+    val callAlert = uiState.callAlert
     val compactNotifs by viewModel.interactor.settings.compactNotifications.collectAsStateWithLifecycle()
 
     val lastAlert = remember { mutableStateOf<IslandEvent.Notification?>(null) }
     if (notifAlert != null) lastAlert.value = notifAlert
+    val lastCallAlert = remember { mutableStateOf<IslandEvent.Call?>(null) }
+    if (callAlert != null) lastCallAlert.value = callAlert
 
     val expandedVisible = remember { MutableTransitionState(false) }
     val showNotif = !isExpanded && notifAlert != null
+    val showCall = !isExpanded && callAlert != null
     val notifVisible = remember { MutableTransitionState(false) }
+    val callVisible = remember { MutableTransitionState(false) }
 
     LaunchedEffect(isExpanded) {
         delay(16) 
@@ -271,6 +280,10 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
     LaunchedEffect(showNotif) {
         delay(16)
         notifVisible.targetState = showNotif
+    }
+    LaunchedEffect(showCall) {
+        delay(16)
+        callVisible.targetState = showCall
     }
 
     var latchedExpandedState by remember { mutableStateOf<AxDynamicBarChipState?>(null) }
@@ -381,6 +394,40 @@ private fun OverlayContent(viewModel: AxDynamicBarChipViewModel, statusBarHeight
                     interactor = viewModel.interactor,
                     onDismiss = { viewModel.interactor.dismissNotificationAlert() },
                     initiallyCompact = compactNotifs,
+                    modifier =
+                        Modifier.widthIn(max = ExpandedMaxWidth)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                )
+            }
+        }
+    }
+
+    AnimatedVisibility(
+        visibleState = callVisible,
+        enter = fadeIn(tween(300)) + scaleIn(
+            animationSpec = tween(300),
+            initialScale = 0.4f,
+            transformOrigin = origin,
+        ),
+        exit = fadeOut(tween(250)) + scaleOut(
+            animationSpec = tween(250),
+            targetScale = 0.4f,
+            transformOrigin = origin,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = topPad),
+            contentAlignment = chipAlignment,
+        ) {
+            val alert = lastCallAlert.value
+            if (alert != null) {
+                CallAlertCard(
+                    event = alert,
+                    interactor = viewModel.interactor,
+                    onDismiss = { viewModel.interactor.dismissCallAlert() },
                     modifier =
                         Modifier.widthIn(max = ExpandedMaxWidth)
                             .fillMaxWidth()

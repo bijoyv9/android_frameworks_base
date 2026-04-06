@@ -54,16 +54,22 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -110,7 +116,14 @@ internal fun NotificationExpanded(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SpaceLg),
         ) {
-            NotifExpandedAvatar(event, SizeCompactIcon)
+            NotifExpandedAvatar(
+                icon = event.senderIcon ?: event.appIcon,
+                isRound = event.isConversation && event.senderIcon != null,
+                badgeIcon = event.appIcon.takeIf {
+                    event.isConversation && event.senderIcon != null && event.appIcon != null
+                },
+                size = SizeCompactIcon,
+            )
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -247,24 +260,168 @@ internal fun NotificationExpanded(
 }
 
 @Composable
-private fun NotifExpandedAvatar(event: IslandEvent.Notification, size: Dp) {
-    val icon = event.senderIcon ?: event.appIcon
-    val isRound = event.isConversation && event.senderIcon != null
-    val hasBadge = event.isConversation && event.senderIcon != null && event.appIcon != null
+internal fun CallExpanded(
+    event: IslandEvent.Call,
+    interactor: IslandActions,
+) {
+    val context = LocalContext.current
+    val accent = if (event.isIncoming) BlueAccent else GreenAccent
 
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(SpaceLg),
+    ) {
+        // Caller info header — tapping opens the call app
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clip(ShapeLg)
+                .background(accent.copy(alpha = AlphaFaint))
+                .clickable {
+                    interactor.launchCallDismissingKeyguard(event)
+                    interactor.collapseIsland()
+                }
+                .padding(SpaceLg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SpaceLg),
+        ) {
+            // Caller avatar or phone icon fallback
+            val callerIcon = event.callerIcon ?: event.appIcon
+            if (callerIcon != null) {
+                Image(
+                    bitmap = callerIcon.toScaledBitmap(SizeCompactIcon),
+                    contentDescription = null,
+                    modifier = Modifier.size(SizeCompactIcon).clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = Modifier.size(SizeCompactIcon).clip(CircleShape)
+                        .background(accent.copy(alpha = AlphaSubtle)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Phone, null, tint = accent, modifier = Modifier.size(SizeIconSm))
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(SpaceXxs),
+            ) {
+                Text(
+                    if (event.isIncoming) stringResource(R.string.ax_dynamic_bar_incoming_call)
+                    else event.appName.ifEmpty { stringResource(R.string.ax_dynamic_bar_ongoing_call) },
+                    color = SubtleGray,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    event.callerName ?: event.title ?: stringResource(R.string.ax_dynamic_bar_ongoing_call),
+                    color = OnCardText,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (event.isIncoming) {
+                    event.text?.let { number ->
+                        Text(
+                            number,
+                            color = SubtleGray,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Ongoing call: timer row with audio output switcher
+        if (!event.isIncoming) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                var elapsedMs by remember(event.startTimeMs) {
+                    mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
+                }
+                LaunchedEffect(event.startTimeMs) {
+                    while (true) {
+                        delay(1000)
+                        elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
+                    }
+                }
+                Text(
+                    formatElapsedTime(elapsedMs),
+                    color = OnCardText,
+                    style = PillMono,
+                )
+
+                Surface(
+                    onClick = { interactor.openMediaOutputSwitcher() },
+                    shape = ShapeChip,
+                    color = accent.copy(alpha = AlphaFaint),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = SpaceXl, vertical = SpaceMd),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(SpaceSm),
+                    ) {
+                        Icon(Icons.Filled.VolumeUp, null, tint = SubtleGray, modifier = Modifier.size(SpaceXl))
+                        Text(
+                            event.outputDeviceName.ifEmpty { stringResource(R.string.ax_dynamic_bar_output) },
+                            color = SubtleGray,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Action buttons (Answer/Decline for incoming, End for active)
+        if (event.actions.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(SpaceMd),
+            ) {
+                event.actions
+                    .take(2)
+                    .forEach { callAction ->
+                        ActionChip(
+                            label = callAction.label.toString(),
+                            color = OnActionText,
+                            bg = ActionBg,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                try { callAction.action.actionIntent?.sendWithBal(context) }
+                                catch (_: Exception) {}
+                                interactor.collapseIsland()
+                            },
+                        )
+                    }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotifExpandedAvatar(
+    icon: android.graphics.drawable.Drawable?,
+    isRound: Boolean,
+    badgeIcon: android.graphics.drawable.Drawable?,
+    size: Dp,
+) {
+    val hasBadge = badgeIcon != null
     when {
-        hasBadge && icon != null -> BadgedContactIcon(icon, event.appIcon!!, size, SpaceXxl, true)
+        hasBadge && icon != null -> BadgedContactIcon(icon, badgeIcon!!, size, SpaceXxl, true)
         icon != null -> Image(
             bitmap = icon.toScaledBitmap(size),
             contentDescription = null,
             modifier = Modifier.size(size).clip(if (isRound) CircleShape else ShapeIconMedium),
+            contentScale = ContentScale.Crop,
         )
-        else -> Box(
-            modifier = Modifier.size(size).clip(ShapeIconMedium).background(BlueAccent.copy(alpha = AlphaSubtle)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Filled.Notifications, null, tint = BlueAccent, modifier = Modifier.size(SizeIconSm))
-        }
     }
 }
 
@@ -474,7 +631,14 @@ internal fun NotificationGroupCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SpaceLg),
         ) {
-            NotifExpandedAvatar(first, SizeCompactIcon)
+            NotifExpandedAvatar(
+                icon = first.senderIcon ?: first.appIcon,
+                isRound = first.isConversation && first.senderIcon != null,
+                badgeIcon = first.appIcon.takeIf {
+                    first.isConversation && first.senderIcon != null && first.appIcon != null
+                },
+                size = SizeCompactIcon,
+            )
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -577,7 +741,14 @@ private fun GroupedNotificationRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(SpaceLg),
             ) {
-                NotifExpandedAvatar(event, SpacePanel)
+                NotifExpandedAvatar(
+                    icon = event.senderIcon ?: event.appIcon,
+                    isRound = event.isConversation && event.senderIcon != null,
+                    badgeIcon = event.appIcon.takeIf {
+                        event.isConversation && event.senderIcon != null && event.appIcon != null
+                    },
+                    size = SpacePanel,
+                )
 
                 Column(
                     modifier = Modifier.weight(1f),

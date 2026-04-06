@@ -162,6 +162,12 @@ constructor(
             }
         }
 
+        applicationScope.launch {
+            repository.notification.callEvent.collect { call ->
+                if (call != null) showCallAlert(call) else dismissCallAlert()
+            }
+        }
+
         _isOnKeyguard.value = statusBarStateController.state == StatusBarState.KEYGUARD
         _isKeyguardFadingAway.value = keyguardStateController.isKeyguardFadingAway
         _isBouncerShowing.value = keyguardStateController.isPrimaryBouncerShowing
@@ -255,17 +261,16 @@ constructor(
             }.collect { (rawEvents, onKeyguard) ->
                 if (!settings.isEnabled.value) return@collect
                 dismissedEventIds.removeAll { id -> rawEvents.none { it.id == id } }
+                val hasActiveCall = rawEvents.any { it is IslandEvent.Call }
                 val events = rawEvents.filter { e ->
                     e.id !in dismissedEventIds &&
-                        
                         !(onKeyguard && e is IslandEvent.Notification) &&
-                        
                         !(onKeyguard && e is IslandEvent.Charging) &&
-                        
                         !(onKeyguard && e is IslandEvent.AppSwitch) &&
-                        
-                        !(!onKeyguard && e is IslandEvent.KeyguardIndication)
+                        !(!onKeyguard && e is IslandEvent.KeyguardIndication) &&
+                        !(hasActiveCall && e is IslandEvent.MicCamActive)
                 }
+
 
                 val current = _uiState.value
 
@@ -285,6 +290,8 @@ constructor(
                             when {
                                 e is IslandEvent.Media && old is IslandEvent.Media ->
                                     e.track != old.track || e.artist != old.artist
+                                e is IslandEvent.Call && old is IslandEvent.Call ->
+                                    e.startTimeMs != old.startTimeMs || e.isIncoming != old.isIncoming
                                 e is IslandEvent.PromotedOngoing && old is IslandEvent.PromotedOngoing ->
                                     hasSignificantPromotedOngoingChange(old, e)
                                 else -> false
@@ -316,6 +323,8 @@ constructor(
                                     when {
                                         e is IslandEvent.Media && old is IslandEvent.Media ->
                                             e.track != old.track || e.artist != old.artist
+                                        e is IslandEvent.Call && old is IslandEvent.Call ->
+                                            e.startTimeMs != old.startTimeMs || e.isIncoming != old.isIncoming
                                         e is IslandEvent.PromotedOngoing && old is IslandEvent.PromotedOngoing ->
                                             hasSignificantPromotedOngoingChange(old, e)
                                         else -> false
@@ -405,6 +414,11 @@ constructor(
             is IslandEvent.Vpn -> repository.connectivity.clearVpn()
             is IslandEvent.Clipboard -> repository.system.clearClipboard()
             is IslandEvent.Notification -> repository.notification.dismissNotification(event)
+            is IslandEvent.Call -> {
+                // Swipe-to-dismiss hides the chip but keeps the event alive until the call ends
+                val current = _uiState.value
+                _uiState.value = current.copy(manuallyHidden = true)
+            }
             is IslandEvent.AppSwitch -> repository.appTracking.clear()
             is IslandEvent.Torch -> {
                 repository.torch.toggleTorch()
@@ -452,6 +466,21 @@ constructor(
         val current = _uiState.value
         if (current.notificationAlert != null) {
             _uiState.value = current.copy(notificationAlert = null)
+        }
+    }
+
+    private fun showCallAlert(event: IslandEvent.Call) {
+        // Calls are high-priority — do NOT suppress on keyguard. Users must be able to
+        // see and answer/decline calls regardless of lock state.
+        if (panelBlocking || statusBlocking) return
+        val current = _uiState.value
+        _uiState.value = current.copy(callAlert = event, manuallyHidden = false)
+    }
+
+    fun dismissCallAlert() {
+        val current = _uiState.value
+        if (current.callAlert != null) {
+            _uiState.value = current.copy(callAlert = null)
         }
     }
 
@@ -526,6 +555,11 @@ constructor(
     override fun toggleTorch() = repository.torch.toggleTorch()
 
     override fun launchNotificationDismissingKeyguard(event: IslandEvent.Notification) {
+        val intent = event.sbn.notification?.contentIntent ?: return
+        activityStarter.startPendingIntentDismissingKeyguard(intent)
+    }
+
+    override fun launchCallDismissingKeyguard(event: IslandEvent.Call) {
         val intent = event.sbn.notification?.contentIntent ?: return
         activityStarter.startPendingIntentDismissingKeyguard(intent)
     }

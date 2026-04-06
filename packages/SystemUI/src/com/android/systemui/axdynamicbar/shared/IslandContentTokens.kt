@@ -520,6 +520,8 @@ internal fun iconKeyFor(event: IslandEvent): Any =
     when (event) {
         is IslandEvent.Media -> event.albumArt?.hashCode() ?: "media_default"
         is IslandEvent.Notification -> event.appIcon?.hashCode() ?: "notif_default"
+        is IslandEvent.Call ->
+            event.callerIcon?.hashCode() ?: event.appIcon?.hashCode() ?: "call:${event.isIncoming}"
         is IslandEvent.AppSwitch -> {
             val app = event.previousApp ?: event.recentApps.firstOrNull()
             app?.appIcon?.hashCode() ?: "app_default"
@@ -582,4 +584,3 @@ internal fun PendingIntent.sendWithBal(context: Context, fillIntent: Intent? = n
     )
     send(context, 0, fillIntent, null, null, null, options.toBundle())
 }
-

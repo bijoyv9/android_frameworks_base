@@ -127,7 +127,7 @@ fun AxDynamicBarChip(
                     var totalDx = 0f
                     var decided = false
 
-                    withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    val timedOut = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val change = event.changes.firstOrNull() ?: break
@@ -163,24 +163,22 @@ fun AxDynamicBarChip(
                                 change.consume()
                             }
                         }
-                    } ?: run {
-                        // Timeout reached, this is a long press if not dragging
-                        if (!dragging) {
-                            state?.let { s ->
-                                (s.notificationAlert ?: s.event).id.let { id ->
-                                    viewModel.longPressExpand(id)
-                                }
+                    }
+                    if (timedOut == null && !dragging) {
+                        // Long press — still inside PointerInputScope so awaitPointerEvent is valid
+                        state?.let { s ->
+                            (s.notificationAlert ?: s.event).id.let { id ->
+                                viewModel.longPressExpand(id)
                             }
-                            // Wait for release to consume
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) {
-                                    change.consume()
-                                    break
-                                }
+                        }
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
                                 change.consume()
+                                break
                             }
+                            change.consume()
                         }
                     }
                 }

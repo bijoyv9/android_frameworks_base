@@ -2,12 +2,17 @@ package com.android.systemui.axdynamicbar.data.source
 
 import android.app.Notification
 import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import com.android.systemui.res.R
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.Icon
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Parcelable
 import android.os.SystemClock
 import android.service.notification.StatusBarNotification
@@ -97,6 +102,9 @@ constructor(
     val notificationEvents: StateFlow<List<IslandEvent.Notification>> =
         _notificationEvents.asStateFlow()
 
+    private val _callEvent = MutableStateFlow<IslandEvent.Call?>(null)
+    val callEvent: StateFlow<IslandEvent.Call?> = _callEvent.asStateFlow()
+
     private val _audioRecordingEvent = MutableStateFlow<IslandEvent.AudioRecording?>(null)
     val audioRecordingEvent: StateFlow<IslandEvent.AudioRecording?> =
         _audioRecordingEvent.asStateFlow()
@@ -146,6 +154,7 @@ constructor(
             override fun onNotificationRemoved(sbn: StatusBarNotification) {
                 val pkg = sbn.packageName ?: return
                 seenNotificationKeys.remove(sbn.key)
+                if (_callEvent.value?.sbn?.key == sbn.key) setCallEvent(null)
 
                 if (sbn.key == timerNotificationKey) {
                     timerNotificationKey = null
@@ -738,6 +747,57 @@ constructor(
             ""
         }
 
+    private val audioManager by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            _callEvent.value?.let { setCallEvent(it.copy(outputDeviceName = getCallOutputDeviceName())) }
+        }
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            _callEvent.value?.let { setCallEvent(it.copy(outputDeviceName = getCallOutputDeviceName())) }
+        }
+    }
+
+    private fun getCallOutputDeviceName(): String =
+        try {
+            val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            // For calls, prefer BT/wired; earpiece and speaker are both valid outputs
+            val primary = outputs.firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            } ?: outputs.firstOrNull()
+            when (primary?.type) {
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ->
+                    primary.productName?.toString()?.takeIf { it.isNotEmpty() } ?: "Bluetooth"
+                AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Headset"
+                AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Headphones"
+                AudioDeviceInfo.TYPE_USB_HEADSET -> "USB Headset"
+                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Speaker"
+                AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Earpiece"
+                null -> "Earpiece"
+                else -> primary.productName?.toString()?.takeIf { it.isNotEmpty() } ?: "Earpiece"
+            }
+        } catch (_: Exception) {
+            "Earpiece"
+        }
+
+    private fun setCallEvent(event: IslandEvent.Call?) {
+        val wasActive = _callEvent.value != null
+        _callEvent.value = event
+        val isActive = event != null
+        if (!wasActive && isActive) {
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
+        } else if (wasActive && !isActive) {
+            audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+        }
+    }
+
     private fun handleCallNotification(sbn: StatusBarNotification, extras: Bundle) {
         val callerName = extras.getString("android.title")
         val number = extras.getString("android.text")
@@ -760,10 +820,7 @@ constructor(
             Notification.EXTRA_CALL_TYPE,
             Notification.CallStyle.CALL_TYPE_UNKNOWN,
         )
-        val callType =
-            if (androidCallType == Notification.CallStyle.CALL_TYPE_INCOMING)
-                "Phone:incoming"
-            else "Phone:active"
+        val isIncoming = androidCallType == Notification.CallStyle.CALL_TYPE_INCOMING
 
         val icon =
             try {
@@ -776,20 +833,24 @@ constructor(
         val callStart = if (callWhen > 0L) callWhen else System.currentTimeMillis()
 
         val event =
-            IslandEvent.Notification(
+            IslandEvent.Call(
                 sbn = sbn,
                 title = callerName,
                 text = number,
                 appIcon = icon,
-                appName = callType,
+                appName = resolveAppName(sbn.packageName),
                 actions = actions,
-                senderIcon = callerPhoto,
-                senderName = callerName,
-                isConversation = false,
-                callStartTimeMs = callStart,
+                callerIcon = callerPhoto,
+                callerName = callerName,
+                startTimeMs = callStart,
+                isIncoming = isIncoming,
+                outputDeviceName = getCallOutputDeviceName(),
             )
-        applicationScope.launch { notificationFlow.emit(event) }
-        onNotificationPosted?.invoke(event)
+        setCallEvent(event)
+    }
+
+    fun clearCall() {
+        setCallEvent(null)
     }
 
     private fun isPromotable(sbn: StatusBarNotification, extras: Bundle): Boolean {

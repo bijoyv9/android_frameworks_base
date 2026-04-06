@@ -31,6 +31,10 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.runtime.mutableLongStateOf
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Notifications
@@ -77,7 +81,10 @@ import com.android.systemui.axdynamicbar.shared.CardBg
 import com.android.systemui.axdynamicbar.shared.CardBorderBrush
 import com.android.systemui.axdynamicbar.shared.DarkCard
 import com.android.systemui.axdynamicbar.shared.ExpressivePillButton
+import com.android.systemui.axdynamicbar.shared.AlphaFaint
+import com.android.systemui.axdynamicbar.shared.BlueAccent
 import com.android.systemui.axdynamicbar.shared.GreenAccent
+import com.android.systemui.axdynamicbar.shared.SpaceXl
 import com.android.systemui.axdynamicbar.shared.OnActionText
 import com.android.systemui.axdynamicbar.shared.OnCardText
 import com.android.systemui.axdynamicbar.shared.RedAccent
@@ -95,6 +102,7 @@ import com.android.systemui.axdynamicbar.shared.SpaceXxl
 import com.android.systemui.axdynamicbar.shared.SubtleGray
 import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
 import com.android.systemui.axdynamicbar.shared.chipContentColorOn
+import com.android.systemui.axdynamicbar.shared.formatElapsedTime
 import com.android.systemui.axdynamicbar.shared.sendWithBal
 import com.android.systemui.axdynamicbar.shared.toScaledBitmap
 
@@ -515,8 +523,8 @@ private fun CallActions(
                     semantic == Notification.Action.SEMANTIC_ACTION_UNMUTE
                 val isEnd = if (hangUpPi != null) pi == hangUpPi
                     else !isMute && action == notification.actions.first()
-                val bg = if (isEnd) RedAccent else ActionBg
-                val tint = if (isEnd) chipContentColorOn(RedAccent) else OnCardText
+                val bg = if (isEnd) RedAccent else MaterialTheme.colorScheme.surfaceContainerHighest
+                val tint = if (isEnd) chipContentColorOn(RedAccent) else MaterialTheme.colorScheme.onSurface
                 val drawable = action.action.getIcon()?.loadDrawable(context)
                 if (drawable != null) {
                     DrawableActionCircle(drawable, bg, tint) {
@@ -687,6 +695,228 @@ private fun ReplyField(
                 }
             }
             Spacer(Modifier.width(SpaceXs))
+        }
+    }
+}
+
+@Composable
+fun CallAlertCard(
+    event: IslandEvent.Call,
+    interactor: IslandActions,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val extras = event.sbn.notification?.extras
+    val accent = if (event.isIncoming) BlueAccent else GreenAccent
+
+    MagneticSwipeToDismiss(onDismiss = onDismiss, modifier = modifier, allowUpDismiss = true) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .clip(ShapeCard)
+                .background(CardBg)
+                .border(1.dp, CardBorderBrush, ShapeCard),
+        ) {
+            // Header row: app icon + label + action circles
+            Surface(
+                onClick = {
+                    try { event.sbn.notification?.contentIntent?.sendWithBal(context) }
+                    catch (_: PendingIntent.CanceledException) {}
+                },
+                color = Color.Transparent,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(SpaceXxl),
+                    verticalArrangement = Arrangement.spacedBy(SpaceLg),
+                ) {
+                    // Top row: app icon + call type label + action circles
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(SpaceSm),
+                    ) {
+                        event.appIcon?.let { icon ->
+                            Image(
+                                bitmap = icon.toScaledBitmap(SizeIconSm),
+                                contentDescription = null,
+                                modifier = Modifier.size(SizeIconSm).clip(ShapeSm),
+                            )
+                        }
+                        Text(
+                            if (event.isIncoming) event.appName.ifEmpty { "Phone" }
+                            else event.appName.ifEmpty { "Phone" },
+                            color = accent,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        CallActions(event, interactor, onDismiss)
+                    }
+
+                    // Caller info row: avatar + name + status
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(SpaceLg),
+                    ) {
+                        val callerIcon = event.callerIcon ?: event.appIcon
+                        if (callerIcon != null) {
+                            Box(
+                                modifier = Modifier.size(SizeCompactIcon)
+                                    .clip(androidx.compose.foundation.shape.CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Image(
+                                    bitmap = callerIcon.toScaledBitmap(SizeCompactIcon),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SizeCompactIcon),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier.size(SizeCompactIcon)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(accent.copy(alpha = AlphaSubtle)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Filled.Phone, null, tint = accent, modifier = Modifier.size(SizeIconSm))
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(SpaceXs),
+                        ) {
+                            Text(
+                                event.callerName ?: event.title ?: "Unknown",
+                                color = OnCardText,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (event.isIncoming) {
+                                Text(
+                                    event.text ?: "",
+                                    color = SubtleGray,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            } else {
+                                // Active call: show elapsed timer
+                                var elapsedMs by remember(event.startTimeMs) {
+                                    mutableLongStateOf(
+                                        (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
+                                    )
+                                }
+                                LaunchedEffect(event.startTimeMs) {
+                                    while (true) {
+                                        delay(1000)
+                                        elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
+                                    }
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(SpaceSm),
+                                ) {
+                                    Text(
+                                        formatElapsedTime(elapsedMs),
+                                        color = GreenAccent,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    if (event.outputDeviceName.isNotEmpty()) {
+                                        Text("·", color = SubtleGray, style = MaterialTheme.typography.bodySmall)
+                                        Surface(
+                                            onClick = { interactor.openMediaOutputSwitcher() },
+                                            shape = ShapeChip,
+                                            color = accent.copy(alpha = AlphaFaint),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = SpaceXl, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(SpaceXs),
+                                            ) {
+                                                Icon(Icons.Filled.VolumeUp, null, tint = SubtleGray, modifier = Modifier.size(10.dp))
+                                                Text(
+                                                    event.outputDeviceName,
+                                                    color = SubtleGray,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    maxLines = 1,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallActions(
+    event: IslandEvent.Call,
+    interactor: IslandActions,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val extras = event.sbn.notification?.extras
+    val answerPi = extras?.getParcelable(Notification.EXTRA_ANSWER_INTENT, PendingIntent::class.java)
+    val declinePi = extras?.getParcelable(Notification.EXTRA_DECLINE_INTENT, PendingIntent::class.java)
+    val hangUpPi = extras?.getParcelable(Notification.EXTRA_HANG_UP_INTENT, PendingIntent::class.java)
+
+    Row(horizontalArrangement = Arrangement.spacedBy(SpaceMd)) {
+        if (event.isIncoming) {
+            event.actions.forEach { action ->
+                val pi = action.action.actionIntent
+                val isDecline = (declinePi != null && pi == declinePi) || (hangUpPi != null && pi == hangUpPi)
+                val isAnswer = answerPi != null && pi == answerPi
+                val decline = isDecline || (!isAnswer && declinePi == null)
+                val bg = if (decline) RedAccent else GreenAccent
+                ActionCircle(
+                    if (decline) Icons.Filled.CallEnd else Icons.Filled.Call,
+                    bg, chipContentColorOn(bg),
+                ) {
+                    try { action.action.actionIntent?.sendWithBal(context) }
+                    catch (_: PendingIntent.CanceledException) {}
+                    onDismiss()
+                }
+            }
+        } else {
+            event.actions.forEach { action ->
+                val pi = action.action.actionIntent
+                val semantic = action.action.semanticAction
+                val isMute = semantic == Notification.Action.SEMANTIC_ACTION_MUTE ||
+                    semantic == Notification.Action.SEMANTIC_ACTION_UNMUTE
+                val isEnd = if (hangUpPi != null) pi == hangUpPi
+                    else !isMute && action == event.actions.first()
+                val bg = if (isEnd) RedAccent else MaterialTheme.colorScheme.surfaceContainerHighest
+                val tint = if (isEnd) chipContentColorOn(RedAccent) else MaterialTheme.colorScheme.onSurface
+                val drawable = action.action.getIcon()?.loadDrawable(context)
+                if (drawable != null) {
+                    DrawableActionCircle(drawable, bg, tint) {
+                        try { action.action.actionIntent?.sendWithBal(context) }
+                        catch (_: PendingIntent.CanceledException) {}
+                        if (isEnd) onDismiss()
+                    }
+                } else {
+                    ActionCircle(
+                        if (isEnd) Icons.Filled.CallEnd else Icons.Filled.Call,
+                        bg, tint,
+                    ) {
+                        try { action.action.actionIntent?.sendWithBal(context) }
+                        catch (_: PendingIntent.CanceledException) {}
+                        if (isEnd) onDismiss()
+                    }
+                }
+            }
         }
     }
 }

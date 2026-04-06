@@ -3,6 +3,7 @@ package com.android.systemui.axdynamicbar.ui
 import android.os.SystemProperties
 import com.android.systemui.axdynamicbar.domain.AxDynamicBarInteractor
 import com.android.systemui.axdynamicbar.model.IslandEvent
+import com.android.systemui.axdynamicbar.shared.EVENT_TYPE_IDS
 import com.android.systemui.biometrics.AuthController
 import com.android.systemui.biometrics.domain.interactor.UdfpsOverlayInteractor
 import com.android.systemui.dagger.SysUISingleton
@@ -186,7 +187,14 @@ constructor(
     }
 
     fun longPressExpand(eventId: String) {
-        expandPanel(filter = eventId)
+        // Resolve the event TYPE id (e.g. "call", "media") from EVENT_TYPE_IDS — the expanded
+        // panel filter uses type IDs, not instance IDs. Passing the instance ID caused
+        // filteredEvents to always be empty → instant collapse (the visible flash).
+        val state = chipState.value ?: return
+        val event = state.notificationAlert?.takeIf { it.id == eventId }
+            ?: state.allEvents.find { it.id == eventId }
+        val typeId = event?.let { EVENT_TYPE_IDS[it::class.java] } ?: eventId
+        expandPanel(filter = typeId)
     }
 
     fun cycleNext() = interactor.cycleNext()
@@ -207,6 +215,10 @@ constructor(
 
     fun launchNotificationFromKeyguard(event: IslandEvent.Notification) {
         interactor.launchNotificationDismissingKeyguard(event)
+    }
+
+    fun launchCallDismissingKeyguard(event: IslandEvent.Call) {
+        interactor.launchCallDismissingKeyguard(event)
     }
 
     companion object {
