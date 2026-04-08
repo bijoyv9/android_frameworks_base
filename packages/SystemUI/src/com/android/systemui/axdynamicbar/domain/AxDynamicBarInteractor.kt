@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2025-2026 AxionOS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.systemui.axdynamicbar.domain
 
 import android.app.Notification
@@ -5,9 +21,11 @@ import android.media.AudioManager
 import android.net.Uri
 import android.provider.Settings.Global
 import com.android.systemui.axdynamicbar.data.IslandEventRepository
+import com.android.systemui.axdynamicbar.model.AxDynamicBarIntent
+import com.android.systemui.axdynamicbar.model.AxDynamicBarState
 import com.android.systemui.axdynamicbar.model.IslandEvent
-import com.android.systemui.axdynamicbar.model.IslandState
 import com.android.systemui.axdynamicbar.model.IslandUiState
+import com.android.systemui.axdynamicbar.model.IslandVisibility
 import com.android.systemui.axdynamicbar.model.RecordingState
 import com.android.systemui.axdynamicbar.shared.IslandActions
 import com.android.systemui.dagger.SysUISingleton
@@ -26,14 +44,15 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 @SysUISingleton
@@ -54,13 +73,26 @@ constructor(
     private val globalSettings: GlobalSettings,
     private val audioManager: AudioManager,
 ) : IslandActions {
+
+    // ─── State Machine Core ────────────────────────────────────────────────
+
+    /** Single source of truth for all feature state. */
+    @Volatile private var _state = AxDynamicBarState()
+
+    /** Public UI state, derived from the internal state machine. */
     private val _uiState = MutableStateFlow(IslandUiState())
     val uiState: StateFlow<IslandUiState> = _uiState.asStateFlow()
 
+    /** Intent channel: all state mutations flow through here. */
+    private val intentChannel = Channel<AxDynamicBarIntent>(capacity = Channel.UNLIMITED)
+
+    /** Auto-dismiss jobs keyed by event ID. */
     private val autoDismissJobs = ConcurrentHashMap<String, Job>()
+
+    /** Auto-dismiss job for the notification alert. */
     @Volatile private var notifAlertJob: Job? = null
 
-    private val dismissedEventIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    // ─── External StateFlows (still needed for UI consumers) ───────────────
 
     override var onFocusableRequested: ((Boolean) -> Unit)? = null
 
@@ -68,29 +100,33 @@ constructor(
 
     private var isInitialized = false
 
-    @Volatile private var panelBlocking = false
-    private val _isPanelExpanded = MutableStateFlow(false)
-    
-    val isPanelExpanded: StateFlow<Boolean> = _isPanelExpanded.asStateFlow()
-    
     val qsExpansion: StateFlow<Float> = shadeInteractor.qsExpansion
-    
+
     val legacyShadeExpansion: StateFlow<Float> = shadeRepository.legacyShadeExpansion
+
     private val _isOnKeyguard = MutableStateFlow(false)
     val isOnKeyguard: StateFlow<Boolean> = _isOnKeyguard.asStateFlow()
+
     private val _isKeyguardFadingAway = MutableStateFlow(false)
     val isKeyguardFadingAway: StateFlow<Boolean> = _isKeyguardFadingAway.asStateFlow()
+
     private val _isBouncerShowing = MutableStateFlow(false)
     val isBouncerShowing: StateFlow<Boolean> = _isBouncerShowing.asStateFlow()
+
     private val _isDozing = MutableStateFlow(statusBarStateController.isDozing)
     val isDozing: StateFlow<Boolean> = _isDozing.asStateFlow()
-    private val _dozeAmount = MutableStateFlow(0f)
-    
-    val dozeAmount: StateFlow<Float> = _dozeAmount.asStateFlow()
-    @Volatile private var isDreaming = false
 
-    private val statusBlocking: Boolean
-        get() = _isDozing.value || isDreaming
+    private val _dozeAmount = MutableStateFlow(0f)
+    val dozeAmount: StateFlow<Float> = _dozeAmount.asStateFlow()
+
+    // Backing property for isPanelExpanded (still exposed for external consumers)
+    private val _isPanelExpanded = MutableStateFlow(false)
+    val isPanelExpanded: StateFlow<Boolean> = _isPanelExpanded.asStateFlow()
+
+    // Local backing field for dreaming state (callback fires before state is updated)
+    @Volatile private var _isDreaming = false
+
+    // ─── Companion ─────────────────────────────────────────────────────────
 
     companion object {
         private const val TAG = "AxDynamicBarInteractor"
@@ -104,12 +140,48 @@ constructor(
         }
     }
 
+    // ─── Initialization ────────────────────────────────────────────────────
+
     fun init() {
         if (isInitialized) return
         isInitialized = true
 
         settings.init()
 
+        // Start the state machine loop
+        startStateMachine()
+
+        // Wire callbacks that dispatch intents
+        setupEventSourceCallbacks()
+
+        // Wire system UI state callbacks
+        setupSystemStateCallbacks()
+
+        // Wire indication controller
+        setupIndicationController()
+
+        // Wire settings
+        wireSettings()
+    }
+
+    /**
+     * The single state machine loop.
+     * Receives intents from the channel, reduces state, and publishes derived UI state.
+     */
+    private fun startStateMachine() {
+        applicationScope.launch {
+            intentChannel.receiveAsFlow().collect { intent ->
+                val previousState = _state
+                _state = reduce(previousState, intent)
+                if (_state != previousState) {
+                    _uiState.value = toIslandUiState(_state)
+                }
+            }
+        }
+    }
+
+    private fun setupEventSourceCallbacks() {
+        // Callbacks from repository managers that trigger auto-dismiss
         repository.system.onChargingStarted = { scheduleAutoDismiss(it) }
         repository.system.onRingerChanged = { scheduleAutoDismiss(it) }
         repository.system.onClipboardCopied = { scheduleAutoDismiss(it) }
@@ -125,6 +197,7 @@ constructor(
 
         repository.biometric.onBiometricUnlock = { scheduleAutoDismiss(it) }
 
+        // Audio recording events
         applicationScope.launch {
             repository.notification.audioRecordingEvent.collect { event ->
                 if (event?.state == RecordingState.SAVED) {
@@ -133,26 +206,28 @@ constructor(
             }
         }
 
+        // Notification flow -> NotificationAlertPosted intent
         applicationScope.launch {
             repository.notification.notificationFlow.collect { notification ->
                 repository.notification.coalesceNotification(notification)
-                showNotificationAlert(notification)
+                intentChannel.send(AxDynamicBarIntent.NotificationAlertPosted(notification))
             }
         }
 
+        // Notification removal -> NotificationAlertDismissed if matching
         applicationScope.launch {
             repository.notification.notificationRemovedFlow.collect { key ->
-                val alert = _uiState.value.notificationAlert ?: return@collect
-                if (alert.sbn.key == key) dismissNotificationAlert()
+                val alert = _state.notificationAlert ?: return@collect
+                if (alert.sbn.key == key) {
+                    intentChannel.send(AxDynamicBarIntent.NotificationAlertDismissed)
+                }
             }
         }
 
+        // Media progress polling
         applicationScope.launch {
             combine(
-                _uiState.map { state ->
-                    state.shouldShow &&
-                        state.events.any { it is IslandEvent.Media && it.isPlaying && it.duration > 0L }
-                },
+                uiState.map { it.shouldShow && it.events.any { e -> e is IslandEvent.Media && e.isPlaying && e.duration > 0L } },
                 _isPanelExpanded,
                 qsExpansion.map { it > 0f },
             ) { mediaActive, panelExpanded, qsOpen ->
@@ -163,6 +238,36 @@ constructor(
             }
         }
 
+        // Repository events -> EventsUpdated intent
+        applicationScope.launch {
+            combine(
+                repository.events,
+                settings.disabledEventTypes,
+                _isOnKeyguard,
+            ) { raw, _, kg ->
+                raw.filter { settings.isEventEnabled(it) } to kg
+            }.collect { (rawEvents, onKeyguard) ->
+                if (!settings.isEnabled.value) return@collect
+
+                // Prune stale dismissed IDs that are no longer in the raw set,
+                // so dismissed events can reappear immediately on a fresh occurrence.
+                val rawEventIds = rawEvents.map { it.id }.toSet()
+                val dismissedIds = _state.dismissedEventIds.intersect(rawEventIds)
+
+                val filteredEvents = rawEvents.filter { e ->
+                    e.id !in dismissedIds &&
+                        !(onKeyguard && e is IslandEvent.Notification) &&
+                        !(onKeyguard && e is IslandEvent.Charging) &&
+                        !(onKeyguard && e is IslandEvent.AppSwitch) &&
+                        !(!onKeyguard && e is IslandEvent.KeyguardIndication)
+                }
+
+                intentChannel.send(AxDynamicBarIntent.EventsUpdated(filteredEvents, dismissedIds))
+            }
+        }
+    }
+
+    private fun setupSystemStateCallbacks() {
         _isOnKeyguard.value = statusBarStateController.state == StatusBarState.KEYGUARD
         _isKeyguardFadingAway.value = keyguardStateController.isKeyguardFadingAway
         _isBouncerShowing.value = keyguardStateController.isPrimaryBouncerShowing
@@ -182,17 +287,19 @@ constructor(
         statusBarStateController.addCallback(
             object : StatusBarStateController.StateListener {
                 override fun onExpandedChanged(isExpanded: Boolean) {
-                    onPanelExpandedChanged(isExpanded)
+                    applicationScope.launch {
+                        intentChannel.send(AxDynamicBarIntent.PanelExpandedChanged(isExpanded))
+                    }
                 }
 
                 override fun onStateChanged(newState: Int) {
                     _isOnKeyguard.value = newState == StatusBarState.KEYGUARD
-                    updateChipVisibility()
+                    dispatchSystemContextChanged()
                 }
 
                 override fun onDozingChanged(dozing: Boolean) {
                     _isDozing.value = dozing
-                    updateChipVisibility()
+                    dispatchSystemContextChanged()
                 }
 
                 override fun onDozeAmountChanged(linear: Float, eased: Float) {
@@ -200,12 +307,14 @@ constructor(
                 }
 
                 override fun onDreamingChanged(dreaming: Boolean) {
-                    isDreaming = dreaming
-                    updateChipVisibility()
+                    _isDreaming = dreaming
+                    dispatchSystemContextChanged()
                 }
             }
         )
+    }
 
+    private fun setupIndicationController() {
         indicationController.addIndicationListener { type, text ->
             val indicationType = mapIndicationType(type) ?: return@addIndicationListener
             if (text != null && text.isNotEmpty()) {
@@ -219,18 +328,22 @@ constructor(
                 repository.clearIndicationEvent(indicationType)
             }
         }
+    }
 
+    private fun wireSettings() {
         applicationScope.launch {
             settings.isEnabled.collect { enabled ->
-                if (enabled) repository.startListening()
-                else {
+                val intent = if (enabled) {
+                    repository.startListening()
+                    AxDynamicBarIntent.FeatureEnabled
+                } else {
                     repository.stopListening()
                     autoDismissJobs.values.forEach { it.cancel() }
                     autoDismissJobs.clear()
-                    dismissedEventIds.clear()
                     repository.clearAllIndicationEvents()
-                    _uiState.value = IslandUiState()
+                    AxDynamicBarIntent.FeatureDisabled
                 }
+                intentChannel.send(intent)
             }
         }
 
@@ -242,143 +355,365 @@ constructor(
 
         applicationScope.launch {
             settings.isHeadsUpEnabled.collect { enabled ->
-                if (!enabled) dismissNotificationAlert()
-            }
-        }
-
-        applicationScope.launch {
-            combine(
-                repository.events,
-                settings.disabledEventTypes,
-                _isOnKeyguard,
-            ) { raw, _, kg ->
-                raw.filter { settings.isEventEnabled(it) } to kg
-            }.collect { (rawEvents, onKeyguard) ->
-                if (!settings.isEnabled.value) return@collect
-                dismissedEventIds.removeAll { id -> rawEvents.none { it.id == id } }
-                val events = rawEvents.filter { e ->
-                    e.id !in dismissedEventIds &&
-                        
-                        !(onKeyguard && e is IslandEvent.Notification) &&
-                        
-                        !(onKeyguard && e is IslandEvent.Charging) &&
-                        
-                        !(onKeyguard && e is IslandEvent.AppSwitch) &&
-                        
-                        !(!onKeyguard && e is IslandEvent.KeyguardIndication)
+                if (!enabled) {
+                    intentChannel.send(AxDynamicBarIntent.NotificationAlertDismissed)
                 }
-
-                val current = _uiState.value
-
-                val hasNewEvents = events.any { e -> current.events.none { it.id == e.id } }
-
-                val userInitiatedRefresh =
-                    events.any { e ->
-                        e is IslandEvent.Torch &&
-                            current.events.firstOrNull { it.id == e.id }?.let { it != e } == true
-                    }
-
-                val hasSignificantChange =
-                    !hasNewEvents &&
-                        events.any { e ->
-                            val old =
-                                current.events.firstOrNull { it.id == e.id } ?: return@any false
-                            when {
-                                e is IslandEvent.Media && old is IslandEvent.Media ->
-                                    e.track != old.track || e.artist != old.artist
-                                else -> false
-                            }
-                        }
-
-                val newState =
-                    when {
-                        events.isEmpty() -> IslandState.HIDDEN
-                        panelBlocking || statusBlocking -> IslandState.HIDDEN
-                        else -> IslandState.CHIP
-                    }
-
-                val prevPinnedId =
-                    current.events.getOrNull(current.pinnedEventIndex)?.id
-
-                val pinnedIndex =
-                    when {
-                        hasNewEvents -> {
-                            val currentIds = current.events.map { it.id }.toSet()
-                            events.indexOfFirst { it.id !in currentIds }.coerceAtLeast(0)
-                        }
-                        hasSignificantChange -> {
-                            val idx =
-                                events.indexOfFirst { e ->
-                                    val old =
-                                        current.events.firstOrNull { it.id == e.id }
-                                            ?: return@indexOfFirst false
-                                    when {
-                                        e is IslandEvent.Media && old is IslandEvent.Media ->
-                                            e.track != old.track || e.artist != old.artist
-                                        else -> false
-                                    }
-                                }
-                            if (idx >= 0) idx
-                            else resolveByIdOrFallback(prevPinnedId, events, current)
-                        }
-                        userInitiatedRefresh -> 0
-                        else -> resolveByIdOrFallback(prevPinnedId, events, current)
-                    }
-                val shouldReset = hasNewEvents || userInitiatedRefresh || hasSignificantChange
-
-                _uiState.value =
-                    IslandUiState(
-                        events = events,
-                        islandState = newState,
-                        pinnedEventIndex = pinnedIndex,
-                        manuallyHidden = if (shouldReset) false else current.manuallyHidden,
-                        forceVisible = false,
-                        notificationAlert = current.notificationAlert,
-                    )
             }
         }
     }
 
-    fun cycleNext() {
-        val current = _uiState.value
-        if (current.events.size <= 1) return
-        val next = (current.pinnedEventIndex + 1) % current.events.size
-        _uiState.value = current.copy(pinnedEventIndex = next)
+    // ─── State Machine: Reducer ────────────────────────────────────────────
+
+    /**
+     * Reducer entry point: given a state and an intent, compute the next state.
+     *
+     * This is the single source of truth for all state transitions, though some
+     * reducers still perform small side effects to preserve existing behavior.
+     */
+    private fun reduce(state: AxDynamicBarState, intent: AxDynamicBarIntent): AxDynamicBarState {
+        return when (intent) {
+            is AxDynamicBarIntent.EventsUpdated -> reduceEventsUpdated(state, intent)
+            is AxDynamicBarIntent.NotificationAlertPosted -> reduceNotificationAlertPosted(state, intent)
+            is AxDynamicBarIntent.NotificationAlertDismissed -> reduceNotificationAlertDismissed(state)
+            is AxDynamicBarIntent.PanelExpandedChanged -> reducePanelExpandedChanged(state, intent)
+            is AxDynamicBarIntent.SystemContextChanged -> reduceSystemContextChanged(state, intent)
+            is AxDynamicBarIntent.EventDismissed -> reduceEventDismissed(state, intent)
+            is AxDynamicBarIntent.AutoDismissTriggered -> reduceAutoDismissTriggered(state, intent)
+            is AxDynamicBarIntent.CycleNext -> reduceCycleNext(state)
+            is AxDynamicBarIntent.CyclePrev -> reduceCyclePrev(state)
+            is AxDynamicBarIntent.PinEventAt -> reducePinEventAt(state, intent)
+            is AxDynamicBarIntent.NotificationAlertInteractionStart -> reduceNotificationAlertInteractionStart(state)
+            is AxDynamicBarIntent.NotificationAlertInteractionEnd -> reduceNotificationAlertInteractionEnd(state, intent)
+            is AxDynamicBarIntent.FeatureDisabled -> reduceFeatureDisabled(state)
+            is AxDynamicBarIntent.FeatureEnabled -> state // Repository start is side effect, handled in wireSettings
+            is AxDynamicBarIntent.EventInteractionStart -> reduceEventInteractionStart(state, intent)
+            is AxDynamicBarIntent.EventInteractionEnd -> reduceEventInteractionEnd(state, intent)
+        }.let { intermediateState ->
+            // After any intent, re-derive visibility
+            intermediateState.copy(visibility = computeVisibility(intermediateState))
+        }
     }
 
-    fun cyclePrev() {
-        val current = _uiState.value
-        if (current.events.size <= 1) return
-        val prev = (current.pinnedEventIndex - 1 + current.events.size) % current.events.size
-        _uiState.value = current.copy(pinnedEventIndex = prev)
+    /**
+     * Handles EventsUpdated: updates event list, computes new pinned index,
+     * respects autoShowsIsland for passive events.
+     */
+    private fun reduceEventsUpdated(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.EventsUpdated,
+    ): AxDynamicBarState {
+        val newEvents = intent.events
+        val oldEvents = state.events
+
+        // Determine what changed
+        val hasNewEvents = newEvents.any { e -> oldEvents.none { it.id == e.id } }
+        val userInitiatedRefresh = newEvents.any { e ->
+            e is IslandEvent.Torch &&
+                oldEvents.firstOrNull { it.id == e.id }?.let { it != e } == true
+        }
+        val hasSignificantChange = newEvents.any { e ->
+            val old = oldEvents.firstOrNull { it.id == e.id } ?: return@any false
+            when {
+                e is IslandEvent.Media && old is IslandEvent.Media ->
+                    e.track != old.track || e.artist != old.artist
+                else -> false
+            }
+        }
+
+        val prevPinnedId = oldEvents.getOrNull(state.pinnedEventIndex)?.id
+
+        // Compute new pinned index
+        val pinnedIndex = when {
+            hasNewEvents -> {
+                // Pin the first new event that has autoShowsIsland = true,
+                // or fall back to the first new event
+                val currentIds = oldEvents.map { it.id }.toSet()
+                val newEventIdx = newEvents.indexOfFirst { it.id !in currentIds }
+                val firstNewEvent = newEvents.getOrNull(newEventIdx)
+                if (firstNewEvent?.behavior?.autoShowsIsland == false) {
+                    // Passive event: keep previous pin if still valid
+                    resolvePinnedIndex(prevPinnedId, newEvents, state.pinnedEventIndex)
+                } else {
+                    newEventIdx.coerceAtLeast(0)
+                }
+            }
+            hasSignificantChange -> {
+                val idx = newEvents.indexOfFirst { e ->
+                    val old = oldEvents.firstOrNull { it.id == e.id } ?: return@indexOfFirst false
+                    when {
+                        e is IslandEvent.Media && old is IslandEvent.Media ->
+                            e.track != old.track || e.artist != old.artist
+                        else -> false
+                    }
+                }
+                if (idx >= 0) idx
+                else resolvePinnedIndex(prevPinnedId, newEvents, state.pinnedEventIndex)
+            }
+            userInitiatedRefresh -> 0
+            else -> resolvePinnedIndex(prevPinnedId, newEvents, state.pinnedEventIndex)
+        }
+
+        return state.copy(
+            events = newEvents,
+            pinnedEventIndex = pinnedIndex,
+            dismissedEventIds = intent.prunedDismissedIds,
+        )
     }
 
-    fun pinEventAt(index: Int) {
-        val current = _uiState.value
-        if (index < 0 || index >= current.events.size) return
-        _uiState.value = current.copy(pinnedEventIndex = index)
+    /**
+     * Handles NotificationAlertPosted: shows alert unless suppressed by DND/ringer,
+     * panel blocking, keyguard, or an active call is already showing.
+     */
+    private fun reduceNotificationAlertPosted(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.NotificationAlertPosted,
+    ): AxDynamicBarState {
+        val notification = intent.alert
+
+        // Suppression checks
+        if (state.isPanelExpanded) return state
+        if (state.isDozing || state.isDreaming) return state
+        if (state.isOnKeyguard) return state
+        if (shouldSuppressForDndOrRinger(notification)) return state
+
+        // Don't replace an active call alert with a non-call alert
+        val existingAlert = state.notificationAlert
+        if (existingAlert != null &&
+            existingAlert.isActiveCall() &&
+            !notification.isActiveCall()
+        ) return state
+
+        // Update alert (progress-based notifications update in place)
+        val hasProgress = notification.progress >= 0 || notification.isProgressIndeterminate
+        val isSameKey = existingAlert != null && existingAlert.sbn.key == notification.sbn.key
+
+        return if (isSameKey && hasProgress) {
+            state.copy(notificationAlert = notification)
+        } else {
+            // Cancel existing auto-dismiss if any
+            notifAlertJob?.cancel()
+            notifAlertJob = null
+
+            val newState = state.copy(notificationAlert = notification)
+
+            // Schedule auto-dismiss for non-call, non-progress alerts
+            if (!hasProgress && !notification.isActiveCall()) {
+                notifAlertJob = applicationScope.launch {
+                    delay(NOTIF_ALERT_DURATION_MS)
+                    intentChannel.send(AxDynamicBarIntent.NotificationAlertDismissed)
+                }
+            }
+
+            newState
+        }
     }
 
-    override fun dismissEvent(event: IslandEvent) {
+    private fun reduceNotificationAlertDismissed(state: AxDynamicBarState): AxDynamicBarState {
+        notifAlertJob?.cancel()
+        notifAlertJob = null
+        return if (state.notificationAlert != null) {
+            state.copy(notificationAlert = null)
+        } else {
+            state
+        }
+    }
+
+    private fun reducePanelExpandedChanged(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.PanelExpandedChanged,
+    ): AxDynamicBarState {
+        _isPanelExpanded.value = intent.expanded
+        if (intent.expanded) {
+            notifAlertJob?.cancel()
+            notifAlertJob = null
+        }
+        return state.copy(
+            isPanelExpanded = intent.expanded,
+            notificationAlert = if (intent.expanded) null else state.notificationAlert,
+        )
+    }
+
+    private fun reduceSystemContextChanged(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.SystemContextChanged,
+    ): AxDynamicBarState {
+        _isOnKeyguard.value = intent.onKeyguard
+        _isDozing.value = intent.dozing
+        return state.copy(
+            isOnKeyguard = intent.onKeyguard,
+            isDozing = intent.dozing,
+            isDreaming = intent.dreaming,
+        )
+    }
+
+    private fun reduceEventDismissed(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.EventDismissed,
+    ): AxDynamicBarState {
+        val event = intent.event
+
+        // Cancel auto-dismiss
         autoDismissJobs[event.id]?.cancel()
         autoDismissJobs.remove(event.id)
-        if (event.behavior.suppressOnDismiss) {
-            dismissedEventIds.add(event.id)
+
+        // Add to dismissed set if suppressOnDismiss
+        val newDismissedIds = if (event.behavior.suppressOnDismiss) {
+            state.dismissedEventIds + event.id
+        } else {
+            state.dismissedEventIds - event.id
         }
 
-        val current = _uiState.value
-        val updatedEvents = current.events.filter { it.id != event.id }
-        val newIndex =
-            current.pinnedEventIndex.coerceAtMost((updatedEvents.size - 1).coerceAtLeast(0))
+        val updatedEvents = state.events.filter { it.id != event.id }
+        val newIndex = state.pinnedEventIndex.coerceAtMost((updatedEvents.size - 1).coerceAtLeast(0))
 
-        _uiState.value =
-            current.copy(
-                events = updatedEvents,
-                pinnedEventIndex = newIndex,
-                islandState =
-                    if (updatedEvents.isEmpty()) IslandState.HIDDEN else current.islandState,
+        // Trigger side-effect cleanup in repository
+        dispatchEventDismissedSideEffects(event)
+
+        return state.copy(
+            events = updatedEvents,
+            pinnedEventIndex = newIndex,
+            dismissedEventIds = newDismissedIds,
+        )
+    }
+
+    private fun reduceAutoDismissTriggered(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.AutoDismissTriggered,
+    ): AxDynamicBarState {
+        val event = state.events.find { it.id == intent.eventId } ?: return state
+        autoDismissJobs.remove(intent.eventId)
+        return reduceEventDismissed(state, AxDynamicBarIntent.EventDismissed(event))
+    }
+
+    private fun reduceCycleNext(state: AxDynamicBarState): AxDynamicBarState {
+        if (state.events.size <= 1) return state
+        val next = (state.pinnedEventIndex + 1) % state.events.size
+        return state.copy(pinnedEventIndex = next)
+    }
+
+    private fun reduceCyclePrev(state: AxDynamicBarState): AxDynamicBarState {
+        if (state.events.size <= 1) return state
+        val prev = (state.pinnedEventIndex - 1 + state.events.size) % state.events.size
+        return state.copy(pinnedEventIndex = prev)
+    }
+
+    private fun reducePinEventAt(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.PinEventAt,
+    ): AxDynamicBarState {
+        if (intent.index < 0 || intent.index >= state.events.size) return state
+        return state.copy(pinnedEventIndex = intent.index)
+    }
+
+    private fun reduceNotificationAlertInteractionStart(state: AxDynamicBarState): AxDynamicBarState {
+        notifAlertJob?.cancel()
+        notifAlertJob = null
+        return state
+    }
+
+    private fun reduceNotificationAlertInteractionEnd(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.NotificationAlertInteractionEnd,
+    ): AxDynamicBarState {
+        val alert = state.notificationAlert ?: return state
+        if (alert.isActiveCall()) return state
+        notifAlertJob = applicationScope.launch {
+            delay(NOTIF_ALERT_DURATION_MS)
+            intentChannel.send(AxDynamicBarIntent.NotificationAlertDismissed)
+        }
+        return state
+    }
+
+    private fun reduceFeatureDisabled(state: AxDynamicBarState): AxDynamicBarState {
+        notifAlertJob?.cancel()
+        notifAlertJob = null
+        return AxDynamicBarState() // Reset everything
+    }
+
+    private fun reduceEventInteractionStart(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.EventInteractionStart,
+    ): AxDynamicBarState {
+        autoDismissJobs[intent.eventId]?.cancel()
+        autoDismissJobs.remove(intent.eventId)
+        return state
+    }
+
+    private fun reduceEventInteractionEnd(
+        state: AxDynamicBarState,
+        intent: AxDynamicBarIntent.EventInteractionEnd,
+    ): AxDynamicBarState {
+        val event = state.events.find { it.id == intent.eventId } ?: return state
+        scheduleAutoDismiss(event)
+        return state
+    }
+
+    // ─── Visibility Derivation ─────────────────────────────────────────────
+
+    /**
+     * Pure function: compute visibility from current state.
+     *
+     * This is the SINGLE place where visibility is decided.
+     */
+    private fun computeVisibility(state: AxDynamicBarState): IslandVisibility {
+        // No events and no alert -> hidden
+        if (state.events.isEmpty() && state.notificationAlert == null) {
+            return IslandVisibility.Hidden
+        }
+
+        // System suppression (dozing, dreaming)
+        if (state.isDozing || state.isDreaming) {
+            return IslandVisibility.SuppressedBySystem
+        }
+
+        // Panel expanded -> hide chip (panel shows the content)
+        if (state.isPanelExpanded) {
+            return IslandVisibility.Expanded
+        }
+
+        // Alert only (no events or passive events only)
+        if (state.events.isEmpty() && state.notificationAlert != null) {
+            return IslandVisibility.AlertOnly
+        }
+
+        // Events exist, not suppressed -> show chip as long as at least one event
+        // can surface the island. This keeps the chip reachable even if the
+        // currently pinned event is passive.
+        if (state.events.none { it.behavior.autoShowsIsland }) {
+            return if (state.notificationAlert != null) IslandVisibility.AlertOnly
+            else IslandVisibility.Hidden
+        }
+
+        return IslandVisibility.Chip
+    }
+
+    // ─── Helper Functions ──────────────────────────────────────────────────
+
+    private fun resolvePinnedIndex(
+        pinnedId: String?,
+        events: List<IslandEvent>,
+        fallbackIndex: Int,
+    ): Int {
+        if (pinnedId != null) {
+            val idx = events.indexOfFirst { it.id == pinnedId }
+            if (idx >= 0) return idx
+        }
+        return fallbackIndex.coerceAtMost((events.size - 1).coerceAtLeast(0))
+    }
+
+    private fun dispatchSystemContextChanged() {
+        applicationScope.launch {
+            intentChannel.send(
+                AxDynamicBarIntent.SystemContextChanged(
+                    onKeyguard = _isOnKeyguard.value,
+                    dozing = _isDozing.value,
+                    dreaming = _isDreaming,
+                )
             )
+        }
+    }
 
+    private fun dispatchEventDismissedSideEffects(event: IslandEvent) {
         when (event) {
             is IslandEvent.ScreenRecording -> repository.screenRecord.stopListening()
             is IslandEvent.MicCamActive -> {}
@@ -412,46 +747,6 @@ constructor(
         }
     }
 
-    fun getTopEvent(): IslandEvent? = _uiState.value.topEvent
-
-    override fun collapseIsland() {
-        onCollapseRequested?.invoke()
-    }
-
-    override fun onNotificationInteraction(eventId: String) {
-        autoDismissJobs[eventId]?.cancel()
-        autoDismissJobs.remove(eventId)
-    }
-
-    override fun onNotificationInteractionEnd(eventId: String) {
-        val event = _uiState.value.events.find { it.id == eventId } ?: return
-        scheduleAutoDismiss(event)
-    }
-
-    override fun onNotificationAlertInteractionStart() {
-        notifAlertJob?.cancel()
-        notifAlertJob = null
-    }
-
-    override fun onNotificationAlertInteractionEnd() {
-        val current = _uiState.value
-        val alert = current.notificationAlert ?: return
-        if (alert.isActiveCall()) return
-        notifAlertJob = applicationScope.launch {
-            delay(NOTIF_ALERT_DURATION_MS)
-            dismissNotificationAlert()
-        }
-    }
-
-    fun dismissNotificationAlert() {
-        notifAlertJob?.cancel()
-        notifAlertJob = null
-        val current = _uiState.value
-        if (current.notificationAlert != null) {
-            _uiState.value = current.copy(notificationAlert = null)
-        }
-    }
-
     private fun shouldSuppressForDndOrRinger(notification: IslandEvent.Notification): Boolean {
         if (notification.isActiveCall()) return false
         if (!settings.isHeadsUpEnabled.value) return true
@@ -464,40 +759,73 @@ constructor(
         return ringerMode == AudioManager.RINGER_MODE_SILENT
     }
 
-    private fun showNotificationAlert(
-        notification: IslandEvent.Notification,
-    ) {
-        if (panelBlocking || statusBlocking || _isOnKeyguard.value) return
-        if (shouldSuppressForDndOrRinger(notification)) return
-        val current = _uiState.value
-        val existingAlert = current.notificationAlert
-        if (existingAlert != null &&
-            existingAlert.isActiveCall() &&
-            !notification.isActiveCall()
-        ) return
-
-        val hasProgress = notification.progress >= 0 || notification.isProgressIndeterminate
-        val isSameKey = existingAlert != null && existingAlert.sbn.key == notification.sbn.key
-
-        if (isSameKey && hasProgress) {
-            _uiState.value = current.copy(notificationAlert = notification)
-            return
-        }
-
-        notifAlertJob?.cancel()
-        _uiState.value = current.copy(notificationAlert = notification)
-
-        if (hasProgress) return
-
-        val duration =
-            if (!notification.isActiveCall()) NOTIF_ALERT_DURATION_MS else null
-        if (duration != null) {
-            notifAlertJob = applicationScope.launch {
-                delay(duration)
-                dismissNotificationAlert()
-            }
+    private fun scheduleAutoDismiss(event: IslandEvent, delayOverride: Long? = null) {
+        val ms = delayOverride ?: event.behavior.autoDismissMs ?: return
+        val eventId = event.id
+        autoDismissJobs[eventId]?.cancel()
+        autoDismissJobs[eventId] = applicationScope.launch {
+            delay(ms)
+            intentChannel.send(AxDynamicBarIntent.AutoDismissTriggered(eventId))
         }
     }
+
+    // ─── Public API (dispatches intents) ───────────────────────────────────
+
+    fun cycleNext() {
+        applicationScope.launch { intentChannel.send(AxDynamicBarIntent.CycleNext) }
+    }
+
+    fun cyclePrev() {
+        applicationScope.launch { intentChannel.send(AxDynamicBarIntent.CyclePrev) }
+    }
+
+    fun pinEventAt(index: Int) {
+        applicationScope.launch { intentChannel.send(AxDynamicBarIntent.PinEventAt(index)) }
+    }
+
+    override fun dismissEvent(event: IslandEvent) {
+        applicationScope.launch { intentChannel.send(AxDynamicBarIntent.EventDismissed(event)) }
+    }
+
+    fun getTopEvent(): IslandEvent? = _state.topEvent
+
+    override fun collapseIsland() {
+        onCollapseRequested?.invoke()
+    }
+
+    override fun onNotificationInteraction(eventId: String) {
+        applicationScope.launch {
+            intentChannel.send(AxDynamicBarIntent.EventInteractionStart(eventId))
+        }
+    }
+
+    override fun onNotificationInteractionEnd(eventId: String) {
+        applicationScope.launch {
+            intentChannel.send(AxDynamicBarIntent.EventInteractionEnd(eventId))
+        }
+    }
+
+    override fun onNotificationAlertInteractionStart() {
+        applicationScope.launch {
+            intentChannel.send(AxDynamicBarIntent.NotificationAlertInteractionStart)
+        }
+    }
+
+    override fun onNotificationAlertInteractionEnd() {
+        val alert = _state.notificationAlert ?: return
+        if (alert.isActiveCall()) return
+        applicationScope.launch {
+            intentChannel.send(AxDynamicBarIntent.NotificationAlertInteractionEnd(alert.id))
+        }
+    }
+
+    fun dismissNotificationAlert() {
+        applicationScope.launch {
+            intentChannel.send(AxDynamicBarIntent.NotificationAlertDismissed)
+        }
+    }
+
+    // ─── IslandActions implementations (side effects only, no state mutation) ──
 
     override fun stopScreenRecording() = repository.screenRecord.stopRecording()
 
@@ -540,48 +868,28 @@ constructor(
 
     override fun switchToApp(taskId: Int) = repository.appTracking.switchToApp(taskId)
 
-    fun onPanelExpandedChanged(expanded: Boolean) {
-        panelBlocking = expanded
-        _isPanelExpanded.value = expanded
-        if (expanded) dismissNotificationAlert()
-        updateChipVisibility()
-    }
+    // ─── Backward Compatibility ────────────────────────────────────────────
 
-    private fun updateChipVisibility() {
-        val current = _uiState.value
-        val shouldHide = panelBlocking || statusBlocking
-        if (shouldHide && current.islandState == IslandState.CHIP) {
-            _uiState.value = current.copy(islandState = IslandState.HIDDEN)
-        } else if (!shouldHide && current.events.isNotEmpty() && current.islandState == IslandState.HIDDEN && !current.manuallyHidden) {
-            _uiState.value = current.copy(islandState = IslandState.CHIP)
-        }
-    }
-
-    private fun scheduleAutoDismiss(event: IslandEvent, delayOverride: Long? = null) {
-        val ms = delayOverride ?: event.behavior.autoDismissMs ?: return
-        val eventId = event.id
-        autoDismissJobs[eventId]?.cancel()
-        autoDismissJobs[eventId] =
-            applicationScope.launch {
-                delay(ms)
-                val current = _uiState.value.events.find { it.id == eventId } ?: event
-                dismissEvent(current)
-            }
-    }
-
-    private fun resolveByIdOrFallback(
-        pinnedId: String?,
-        events: List<IslandEvent>,
-        current: IslandUiState,
-    ): Int {
-        if (pinnedId != null) {
-            val idx = events.indexOfFirst { it.id == pinnedId }
-            if (idx >= 0) return idx
-        }
-        return current.pinnedEventIndex.coerceAtMost(
-            (events.size - 1).coerceAtLeast(0)
+    /**
+     * Converts the new AxDynamicBarState to the legacy IslandUiState.
+     * This allows the UI layer to continue working unchanged while we migrate.
+     */
+    private fun toIslandUiState(state: AxDynamicBarState): IslandUiState {
+        return IslandUiState(
+            events = state.events,
+            islandState = when (state.visibility) {
+                IslandVisibility.Hidden -> com.android.systemui.axdynamicbar.model.IslandState.HIDDEN
+                IslandVisibility.Chip -> com.android.systemui.axdynamicbar.model.IslandState.CHIP
+                IslandVisibility.Expanded -> com.android.systemui.axdynamicbar.model.IslandState.HIDDEN
+                IslandVisibility.AlertOnly -> com.android.systemui.axdynamicbar.model.IslandState.CHIP
+                IslandVisibility.SuppressedBySystem -> com.android.systemui.axdynamicbar.model.IslandState.HIDDEN
+            },
+            pinnedEventIndex = state.pinnedEventIndex,
+            notificationAlert = state.notificationAlert,
         )
     }
+
+    // ─── Utility ───────────────────────────────────────────────────────────
 
     private fun mapIndicationType(type: Int): IslandEvent.KeyguardIndication.IndicationType? =
         when (type) {
