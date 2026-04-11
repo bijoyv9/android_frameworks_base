@@ -144,7 +144,11 @@ class AppTrackingIslandManager @Inject constructor(@Application private val cont
     }
 
     fun clear() {
-        _appSwitchEvent.value = null
+        currentForegroundPkg = null
+        synchronized(recentApps) {
+            recentApps.clear()
+            _appSwitchEvent.value = null
+        }
     }
 
     fun refreshRecentApps() {
@@ -189,4 +193,3 @@ class AppTrackingIslandManager @Inject constructor(@Application private val cont
             null
         }
 }
-
