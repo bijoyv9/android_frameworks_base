@@ -50,7 +50,7 @@ sealed interface IslandVisibility {
  * scattered boolean fields that previously lived in AxDynamicBarInteractor.
  */
 data class AxDynamicBarState(
-    /** All currently active events, sorted by priority (highest first). */
+    /** All currently active events, ordered by arbitration priority with the front event first. */
     val events: List<IslandEvent> = emptyList(),
 
     /** Derived visibility state (computed by reducer, not directly set). */
@@ -76,6 +76,9 @@ data class AxDynamicBarState(
 
     /** System context: whether the device is dreaming (screensaver). */
     val isDreaming: Boolean = false,
+
+    /** First-seen timestamp for currently active events, used for arbitration stickiness. */
+    val eventFirstSeenAtMs: Map<String, Long> = emptyMap(),
 ) {
     val shouldShowChip: Boolean
         get() = visibility == IslandVisibility.Chip

@@ -395,68 +395,20 @@ constructor(
     }
 
     /**
-     * Handles EventsUpdated: updates event list, computes new pinned index,
-     * respects autoShowsIsland for passive events.
+     * Handles EventsUpdated by re-arbitrating the ordered event list,
+     * preserving the user's pinned event when it still exists.
      */
     private fun reduceEventsUpdated(
         state: AxDynamicBarState,
         intent: AxDynamicBarIntent.EventsUpdated,
     ): AxDynamicBarState {
-        val newEvents = intent.events
-        val oldEvents = state.events
-
-        // Determine what changed
-        val hasNewEvents = newEvents.any { e -> oldEvents.none { it.id == e.id } }
-        val userInitiatedRefresh = newEvents.any { e ->
-            e is IslandEvent.Torch &&
-                oldEvents.firstOrNull { it.id == e.id }?.let { it != e } == true
-        }
-        val hasSignificantChange = newEvents.any { e ->
-            val old = oldEvents.firstOrNull { it.id == e.id } ?: return@any false
-            when {
-                e is IslandEvent.Media && old is IslandEvent.Media ->
-                    e.track != old.track || e.artist != old.artist
-                else -> false
-            }
-        }
-
-        val prevPinnedId = oldEvents.getOrNull(state.pinnedEventIndex)?.id
-
-        // Compute new pinned index
-        val pinnedIndex = when {
-            hasNewEvents -> {
-                // Pin the first new event that has autoShowsIsland = true,
-                // or fall back to the first new event
-                val currentIds = oldEvents.map { it.id }.toSet()
-                val newEventIdx = newEvents.indexOfFirst { it.id !in currentIds }
-                val firstNewEvent = newEvents.getOrNull(newEventIdx)
-                if (firstNewEvent?.behavior?.autoShowsIsland == false) {
-                    // Passive event: keep previous pin if still valid
-                    resolvePinnedIndex(prevPinnedId, newEvents, state.pinnedEventIndex)
-                } else {
-                    newEventIdx.coerceAtLeast(0)
-                }
-            }
-            hasSignificantChange -> {
-                val idx = newEvents.indexOfFirst { e ->
-                    val old = oldEvents.firstOrNull { it.id == e.id } ?: return@indexOfFirst false
-                    when {
-                        e is IslandEvent.Media && old is IslandEvent.Media ->
-                            e.track != old.track || e.artist != old.artist
-                        else -> false
-                    }
-                }
-                if (idx >= 0) idx
-                else resolvePinnedIndex(prevPinnedId, newEvents, state.pinnedEventIndex)
-            }
-            userInitiatedRefresh -> 0
-            else -> resolvePinnedIndex(prevPinnedId, newEvents, state.pinnedEventIndex)
-        }
+        val arbitrationResult = EventArbitration.arbitrate(state, intent.events)
 
         return state.copy(
-            events = newEvents,
-            pinnedEventIndex = pinnedIndex,
+            events = arbitrationResult.events,
+            pinnedEventIndex = arbitrationResult.pinnedEventIndex,
             dismissedEventIds = intent.prunedDismissedIds,
+            eventFirstSeenAtMs = arbitrationResult.eventFirstSeenAtMs,
         )
     }
 
@@ -573,6 +525,7 @@ constructor(
             events = updatedEvents,
             pinnedEventIndex = newIndex,
             dismissedEventIds = newDismissedIds,
+            eventFirstSeenAtMs = state.eventFirstSeenAtMs - event.id,
         )
     }
 
@@ -688,18 +641,6 @@ constructor(
     }
 
     // ─── Helper Functions ──────────────────────────────────────────────────
-
-    private fun resolvePinnedIndex(
-        pinnedId: String?,
-        events: List<IslandEvent>,
-        fallbackIndex: Int,
-    ): Int {
-        if (pinnedId != null) {
-            val idx = events.indexOfFirst { it.id == pinnedId }
-            if (idx >= 0) return idx
-        }
-        return fallbackIndex.coerceAtMost((events.size - 1).coerceAtLeast(0))
-    }
 
     private fun dispatchSystemContextChanged() {
         applicationScope.launch {

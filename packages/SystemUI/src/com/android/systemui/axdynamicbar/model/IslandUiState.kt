@@ -7,7 +7,7 @@ package com.android.systemui.axdynamicbar.model
  * The `manuallyHidden` and `forceVisible` fields have been removed as they were unused.
  * All state mutations now flow through the intent/reducer pipeline in the interactor.
  *
- * @param events All currently active events, sorted by priority.
+ * @param events All currently active events, ordered by arbitration priority.
  * @param islandState Whether the bar is showing as a chip or hidden.
  * @param pinnedEventIndex Index of the currently pinned event in [events].
  * @param notificationAlert Current heads-up notification alert, if any.
@@ -31,4 +31,3 @@ data class IslandUiState(
     val activeEvents: List<IslandEvent>
         get() = events.filter { it !is IslandEvent.Notification }
 }
-
