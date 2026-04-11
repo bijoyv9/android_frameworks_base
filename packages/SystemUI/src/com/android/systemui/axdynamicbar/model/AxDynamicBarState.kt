@@ -59,6 +59,9 @@ data class AxDynamicBarState(
     /** Index of the currently pinned event in [events]. */
     val pinnedEventIndex: Int = 0,
 
+    /** Whether the current pinned index was explicitly chosen by the user. */
+    val isUserPinned: Boolean = false,
+
     /** Event IDs that have been explicitly dismissed by the user. */
     val dismissedEventIds: Set<String> = emptySet(),
 

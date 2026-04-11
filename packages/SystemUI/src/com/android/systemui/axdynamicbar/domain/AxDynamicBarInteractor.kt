@@ -401,10 +401,20 @@ constructor(
         intent: AxDynamicBarIntent.EventsUpdated,
     ): AxDynamicBarState {
         val arbitrationResult = EventArbitration.arbitrate(state, intent.events)
+        val pinnedEventIndex =
+            if (state.isUserPinned) {
+                val previouslyPinnedId = state.topEvent?.id
+                arbitrationResult.events
+                    .indexOfFirst { it.id == previouslyPinnedId }
+                    .takeIf { it >= 0 } ?: 0
+            } else {
+                0
+            }
 
         return state.copy(
             events = arbitrationResult.events,
-            pinnedEventIndex = arbitrationResult.pinnedEventIndex,
+            pinnedEventIndex = pinnedEventIndex,
+            isUserPinned = state.isUserPinned && arbitrationResult.events.isNotEmpty(),
             dismissedEventIds = intent.prunedDismissedIds,
             eventFirstSeenAtMs = arbitrationResult.eventFirstSeenAtMs,
         )
@@ -522,6 +532,10 @@ constructor(
         return state.copy(
             events = updatedEvents,
             pinnedEventIndex = newIndex,
+            isUserPinned =
+                state.isUserPinned &&
+                    updatedEvents.isNotEmpty() &&
+                    state.topEvent?.id != event.id,
             dismissedEventIds = newDismissedIds,
             eventFirstSeenAtMs = state.eventFirstSeenAtMs - event.id,
         )
@@ -539,13 +553,13 @@ constructor(
     private fun reduceCycleNext(state: AxDynamicBarState): AxDynamicBarState {
         if (state.events.size <= 1) return state
         val next = (state.pinnedEventIndex + 1) % state.events.size
-        return state.copy(pinnedEventIndex = next)
+        return state.copy(pinnedEventIndex = next, isUserPinned = true)
     }
 
     private fun reduceCyclePrev(state: AxDynamicBarState): AxDynamicBarState {
         if (state.events.size <= 1) return state
         val prev = (state.pinnedEventIndex - 1 + state.events.size) % state.events.size
-        return state.copy(pinnedEventIndex = prev)
+        return state.copy(pinnedEventIndex = prev, isUserPinned = true)
     }
 
     private fun reducePinEventAt(
@@ -553,7 +567,7 @@ constructor(
         intent: AxDynamicBarIntent.PinEventAt,
     ): AxDynamicBarState {
         if (intent.index < 0 || intent.index >= state.events.size) return state
-        return state.copy(pinnedEventIndex = intent.index)
+        return state.copy(pinnedEventIndex = intent.index, isUserPinned = true)
     }
 
     private fun reduceNotificationAlertInteractionStart(state: AxDynamicBarState): AxDynamicBarState {
