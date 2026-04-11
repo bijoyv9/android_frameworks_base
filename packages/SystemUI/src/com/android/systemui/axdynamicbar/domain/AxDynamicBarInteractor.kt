@@ -209,7 +209,6 @@ constructor(
         // Notification flow -> NotificationAlertPosted intent
         applicationScope.launch {
             repository.notification.notificationFlow.collect { notification ->
-                repository.notification.coalesceNotification(notification)
                 intentChannel.send(AxDynamicBarIntent.NotificationAlertPosted(notification))
             }
         }
@@ -256,7 +255,6 @@ constructor(
 
                 val filteredEvents = rawEvents.filter { e ->
                     e.id !in dismissedIds &&
-                        !(onKeyguard && e is IslandEvent.Notification) &&
                         !(onKeyguard && e is IslandEvent.Charging) &&
                         !(onKeyguard && e is IslandEvent.AppSwitch) &&
                         !(!onKeyguard && e is IslandEvent.KeyguardIndication)
@@ -677,7 +675,7 @@ constructor(
             is IslandEvent.RingerMode -> repository.system.clearRinger()
             is IslandEvent.Vpn -> repository.connectivity.clearVpn()
             is IslandEvent.Clipboard -> repository.system.clearClipboard()
-            is IslandEvent.Notification -> repository.notification.dismissNotification(event)
+            is IslandEvent.Notification -> {}
             is IslandEvent.AppSwitch -> repository.appTracking.clear()
             is IslandEvent.Torch -> {
                 repository.torch.toggleTorch()

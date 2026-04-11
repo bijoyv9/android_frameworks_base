@@ -93,10 +93,6 @@ constructor(
     private val _alarmEvent = MutableStateFlow<IslandEvent.Alarm?>(null)
     val alarmEvent: StateFlow<IslandEvent.Alarm?> = _alarmEvent.asStateFlow()
 
-    private val _notificationEvents = MutableStateFlow<List<IslandEvent.Notification>>(emptyList())
-    val notificationEvents: StateFlow<List<IslandEvent.Notification>> =
-        _notificationEvents.asStateFlow()
-
     private val _audioRecordingEvent = MutableStateFlow<IslandEvent.AudioRecording?>(null)
     val audioRecordingEvent: StateFlow<IslandEvent.AudioRecording?> =
         _audioRecordingEvent.asStateFlow()
@@ -178,9 +174,6 @@ constructor(
                 if (_nowPlayingEvent.value?.key == sbn.key) {
                     _nowPlayingEvent.value = null
                 }
-
-                _notificationEvents.value =
-                    _notificationEvents.value.filter { it.sbn.key != sbn.key }
 
                 notificationRemovedFlow.tryEmit(sbn.key)
             }
@@ -557,7 +550,6 @@ constructor(
         _timerEvent.value = null
         _stopwatchEvent.value = null
         _alarmEvent.value = null
-        _notificationEvents.value = emptyList()
         _promotedOngoingEvents.value = emptyList()
         _sportsEvents.value = emptyList()
         _nowPlayingEvent.value = null
@@ -574,17 +566,6 @@ constructor(
         recorderNotifKey = null
         pauseStartMs = 0L
         accumulatedPauseMs = 0L
-    }
-
-    fun dismissNotification(event: IslandEvent.Notification) {
-        _notificationEvents.value = _notificationEvents.value.filter { it.id != event.id }
-    }
-
-    fun coalesceNotification(event: IslandEvent.Notification) {
-        val current = _notificationEvents.value.toMutableList()
-        current.removeAll { it.id == event.id }
-        current.add(0, event)
-        _notificationEvents.value = current
     }
 
     fun clearTimer() {
