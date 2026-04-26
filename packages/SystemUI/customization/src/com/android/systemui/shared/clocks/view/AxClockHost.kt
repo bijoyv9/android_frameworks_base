@@ -16,11 +16,14 @@
 
 package com.android.systemui.shared.clocks.view
 
-import android.util.Log
-import android.view.View
-import android.view.ViewGroup
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalDragOrCancellation
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,10 +39,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.android.axion.compose.host.AxComposeView
 import com.android.systemui.shared.clocks.ClockSettingsRepository
+import kotlinx.coroutines.launch
 
 class AxClockHost(private val clock: AxClockView) {
 
@@ -110,6 +117,19 @@ class AxClockHost(private val clock: AxClockView) {
             } else {
                 Modifier.fillMaxSize()
             }
+
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+            val persistedOffset by ClockSettingsRepository.heightOffset.collectAsState()
+            val animOffset = remember { Animatable(persistedOffset) }
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+            LaunchedEffect(persistedOffset) {
+                if (!animOffset.isRunning) {
+                    animOffset.snapTo(persistedOffset)
+                }
+            }
+
             Box(
                 modifier = sizeModifier
                     .graphicsLayer {
@@ -121,6 +141,88 @@ class AxClockHost(private val clock: AxClockView) {
                                 transformOrigin = TransformOrigin(0f, 0.5f)
                             ClockSettingsRepository.ALIGNMENT_RIGHT ->
                                 transformOrigin = TransformOrigin(1f, 0.5f)
+                        }
+                    }
+                    .pointerInput(clock.isPreviewMode) {
+                        if (clock.isPreviewMode) return@pointerInput
+
+                        val screenHeightDp = configuration.screenHeightDp.toFloat()
+                        val minBound = -screenHeightDp * 0.2f
+                        val maxBound = screenHeightDp * 0.5f
+                        val resistance = 0.45f
+                        var lastTapTime = 0L
+                        var lastTapPosition: androidx.compose.ui.geometry.Offset? = null
+
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            val currentTime = System.currentTimeMillis()
+                            val tapPosition = down.position
+                            
+                            val isDoubleTap = currentTime - lastTapTime < 300 &&
+                                    lastTapPosition?.let { (it - tapPosition).getDistance() < 100 } ?: false
+
+                            if (isDoubleTap) {
+                                // Double tap detected
+                                coroutineScope.launch {
+                                    animOffset.animateTo(0f, spring(stiffness = Spring.StiffnessLow))
+                                    ClockSettingsRepository.saveHeightOffset(clock.context, 0f)
+                                }
+                                lastTapTime = 0
+                                lastTapPosition = null
+                            } else {
+                                lastTapTime = currentTime
+                                lastTapPosition = tapPosition
+                                
+                                val slopDrag = awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
+                                    val overDp = with(density) { over.toDp().value }
+                                    animOffset.snapTo(animOffset.value + overDp)
+                                    change.consume()
+                                }
+
+                                if (slopDrag != null) {
+                                    // User started dragging, so clear tap history to prevent accidental reset
+                                    lastTapTime = 0
+                                    lastTapPosition = null
+
+                                    var drag: PointerInputChange? = slopDrag
+                                    while (drag != null) {
+                                        val dragAmount = with(density) { (drag!!.position.y - drag!!.previousPosition.y).toDp().value }
+                                        val current = animOffset.value
+                                        val adjustedDelta = if (current < minBound || current > maxBound) {
+                                            dragAmount * resistance
+                                        } else {
+                                            dragAmount
+                                        }
+
+                                        // We can call snapTo directly here if we want to avoid launch,
+                                        // but Animatable.snapTo is a suspend function and we are in
+                                        // AwaitPointerEventScope (which is a suspend scope).
+                                        // However, snapTo might conflict with the pointer loop if not careful.
+                                        // Using coroutineScope.launch is safer for UI updates from pointer events.
+                                        // BUT the feedback explicitly said to remove it.
+                                        // Let's try calling it directly.
+                                        animOffset.snapTo(current + adjustedDelta)
+
+                                        drag!!.consume()
+                                        drag = awaitVerticalDragOrCancellation(down.id)
+                                    }
+
+                                    // Drag ended: settle with physics
+                                    coroutineScope.launch {
+                                        val finalValue = animOffset.value.coerceIn(minBound, maxBound)
+                                        if (animOffset.value != finalValue) {
+                                            animOffset.animateTo(
+                                                finalValue,
+                                                spring(
+                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                    stiffness = Spring.StiffnessLow
+                                                )
+                                            )
+                                        }
+                                        ClockSettingsRepository.saveHeightOffset(clock.context, finalValue)
+                                    }
+                                }
+                            }
                         }
                     }
             ) {

@@ -33,6 +33,7 @@ object ClockSettingsRepository {
     const val SETTING_SIZE = "ax_clock_size"
     const val SETTING_DATE_POSITION = "ax_clock_compose_date_position"
     const val SETTING_CLOCK_COLOR = "ax_clock_color"
+    const val SETTING_HEIGHT_OFFSET = "ax_clock_height_offset"
 
     const val COLOR_AUTO = "auto"
 
@@ -51,6 +52,7 @@ object ClockSettingsRepository {
     @JvmField val sizeUri: Uri = Settings.Secure.getUriFor(SETTING_SIZE)
     @JvmField val datePositionUri: Uri = Settings.Secure.getUriFor(SETTING_DATE_POSITION)
     @JvmField val clockColorUri: Uri = Settings.Secure.getUriFor(SETTING_CLOCK_COLOR)
+    @JvmField val heightOffsetUri: Uri = Settings.Secure.getUriFor(SETTING_HEIGHT_OFFSET)
 
     private val _clockId = MutableStateFlow("DEFAULT")
     val clockId: StateFlow<String> = _clockId.asStateFlow()
@@ -66,6 +68,9 @@ object ClockSettingsRepository {
 
     private val _clockColorOverride = MutableStateFlow<Int?>(null)
     val clockColorOverride: StateFlow<Int?> = _clockColorOverride.asStateFlow()
+
+    private val _heightOffset = MutableStateFlow(0f)
+    val heightOffset: StateFlow<Float> = _heightOffset.asStateFlow()
 
     private val _shouldCenterIcons = MutableStateFlow(true)
     val shouldCenterIcons: StateFlow<Boolean> = _shouldCenterIcons.asStateFlow()
@@ -95,6 +100,9 @@ object ClockSettingsRepository {
                 clockColorUri -> {
                     _clockColorOverride.value = readClockColor(cr)
                 }
+                heightOffsetUri -> {
+                    _heightOffset.value = readHeightOffset(cr)
+                }
             }
         }
     }
@@ -106,6 +114,7 @@ object ClockSettingsRepository {
 
         if (registered) {
             _clockColorOverride.value = readClockColor(cr)
+            _heightOffset.value = readHeightOffset(cr)
             return
         }
         registered = true
@@ -115,12 +124,14 @@ object ClockSettingsRepository {
         cr.registerContentObserver(sizeUri, false, observer)
         cr.registerContentObserver(datePositionUri, false, observer)
         cr.registerContentObserver(clockColorUri, false, observer)
+        cr.registerContentObserver(heightOffsetUri, false, observer)
 
         _clockId.value = readClockId(cr)
         _alignment.value = readAlignment(cr)
         _sizeScale.value = readSizeScale(cr)
         _isDateBelow.value = readDateBelow(cr)
         _clockColorOverride.value = readClockColor(cr)
+        _heightOffset.value = readHeightOffset(cr)
         _shouldCenterIcons.value = computeShouldCenter(cr)
     }
 
@@ -161,6 +172,16 @@ object ClockSettingsRepository {
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun readHeightOffset(cr: ContentResolver): Float {
+        return Settings.Secure.getFloat(cr, SETTING_HEIGHT_OFFSET, 0f)
+    }
+
+    @JvmStatic
+    fun saveHeightOffset(context: Context, offset: Float) {
+        Settings.Secure.putFloat(context.contentResolver, SETTING_HEIGHT_OFFSET, offset)
+        _heightOffset.value = offset
     }
 
     private fun computeShouldCenter(cr: ContentResolver): Boolean {

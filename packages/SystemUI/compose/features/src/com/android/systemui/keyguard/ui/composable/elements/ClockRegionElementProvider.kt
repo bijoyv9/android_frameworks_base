@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.android.compose.animation.scene.ElementContentScope
 import com.android.systemui.customization.clocks.R as clocksR
@@ -72,6 +73,8 @@ constructor(
             val clockBounds: VRectF by
                 keyguardClockViewModel.clockEventController.smallClockBounds
                     .collectAsStateWithLifecycle()
+            val heightOffset by
+                ClockSettingsRepository.heightOffset.collectAsStateWithLifecycle()
 
             // Horizontal Padding is handled internally within the SmartspaceCards element. This
             // makes the application here to other elements in the hierarchy slightly awkward.
@@ -82,7 +85,11 @@ constructor(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier =
                         Modifier.padding(horizontal = xPadding)
-                            .padding(top = dimensionResource(R.dimen.keyguard_clock_top_margin)),
+                            .padding(
+                                top =
+                                    dimensionResource(R.dimen.keyguard_clock_top_margin) +
+                                        heightOffset.dp
+                            ),
                 ) {
                     with(LocalDensity.current) {
                         LockscreenElement(
@@ -127,6 +134,8 @@ constructor(
             val clockBounds: VRectF by
                 keyguardClockViewModel.clockEventController.largeClockBounds
                     .collectAsStateWithLifecycle()
+            val heightOffset by
+                ClockSettingsRepository.heightOffset.collectAsStateWithLifecycle()
 
             // Horizontal Padding is handled internally within the SmartspaceCards element. This
             // makes the application here to other elements in the hierarchy slightly awkward.
@@ -137,7 +146,11 @@ constructor(
                 verticalArrangement = Arrangement.Top,
                 modifier =
                     Modifier.fillMaxSize()
-                        .padding(top = dimensionResource(R.dimen.keyguard_clock_top_margin)),
+                        .padding(
+                            top =
+                                dimensionResource(R.dimen.keyguard_clock_top_margin) +
+                                    heightOffset.dp
+                        ),
             ) {
                 Column(
                     horizontalAlignment = Alignment.Start,
