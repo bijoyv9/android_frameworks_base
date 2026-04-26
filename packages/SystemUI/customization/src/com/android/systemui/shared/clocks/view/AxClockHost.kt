@@ -16,6 +16,9 @@
 
 package com.android.systemui.shared.clocks.view
 
+import android.util.Log
+import android.view.View
+import android.view.ViewGroup
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -175,7 +178,9 @@ class AxClockHost(private val clock: AxClockView) {
                                 
                                 val slopDrag = awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
                                     val overDp = with(density) { over.toDp().value }
-                                    animOffset.snapTo(animOffset.value + overDp)
+                                    coroutineScope.launch {
+                                        animOffset.snapTo(animOffset.value + overDp)
+                                    }
                                     change.consume()
                                 }
 
@@ -194,14 +199,9 @@ class AxClockHost(private val clock: AxClockView) {
                                             dragAmount
                                         }
 
-                                        // We can call snapTo directly here if we want to avoid launch,
-                                        // but Animatable.snapTo is a suspend function and we are in
-                                        // AwaitPointerEventScope (which is a suspend scope).
-                                        // However, snapTo might conflict with the pointer loop if not careful.
-                                        // Using coroutineScope.launch is safer for UI updates from pointer events.
-                                        // BUT the feedback explicitly said to remove it.
-                                        // Let's try calling it directly.
-                                        animOffset.snapTo(current + adjustedDelta)
+                                        coroutineScope.launch {
+                                            animOffset.snapTo(current + adjustedDelta)
+                                        }
 
                                         drag!!.consume()
                                         drag = awaitVerticalDragOrCancellation(down.id)
