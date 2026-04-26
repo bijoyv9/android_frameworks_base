@@ -24,6 +24,9 @@
     <string name="clock_default_description">Digital default</string>
     
     <string name="clock_id_general">GENERAL</string>
+    <!-- Internal identifier for Blank clock style. -->
+    <string name="clock_id_blank" translatable="false">BLANK</string>
+    <string name="clock_title_none">None</string>
     <string name="clock_id_graphic">GRAPHIC</string>
     <string name="clock_id_london_ug">LONDON_UG</string>
     <string name="clock_id_ndot">NDOT</string>

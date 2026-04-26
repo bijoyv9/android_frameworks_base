@@ -19,14 +19,21 @@ import com.android.systemui.shared.clocks.view.ClockFaceStyle
 
 enum class AxClockType(
     val clockId: Int,
+    val titleId: Int = clockId,
     val viewId: Int,
     val largeViewId: Int = viewId,
     val bitmapFaceStyle: ClockFaceStyle? = null
 ) {
     GENERAL(
         clockId = R.string.clock_id_general,
+        titleId = R.string.clock_default_name,
         viewId = R.layout.clock_general,
         largeViewId = R.layout.clock_general_large
+    ),
+    BLANK(
+        clockId = R.string.clock_id_blank,
+        titleId = R.string.clock_title_none,
+        viewId = R.layout.clock_blank
     ),
     GRAPHIC(
         clockId = R.string.clock_id_graphic,
@@ -48,6 +55,7 @@ enum class AxClockType(
     ),
     NTYPE(
         clockId = R.string.clock_id_ntype,
+        titleId = R.string.clock_default_name,
         viewId = R.layout.clock_bitmap_compose,
         largeViewId = R.layout.clock_bitmap_compose_large,
         bitmapFaceStyle = ClockFaceStyle.NTYPE
