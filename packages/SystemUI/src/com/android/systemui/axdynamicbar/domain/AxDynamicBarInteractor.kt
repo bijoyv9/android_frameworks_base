@@ -92,7 +92,11 @@ constructor(
 
         settings.init()
 
-        repository.system.onChargingStarted = { scheduleAutoDismiss(it) }
+        repository.system.onChargingStarted = { event ->
+            if (!_isOnKeyguard.value) {
+                scheduleAutoDismiss(event)
+            }
+        }
         repository.system.onRingerChanged = { scheduleAutoDismiss(it) }
         repository.system.onClipboardCopied = { scheduleAutoDismiss(it) }
 
@@ -158,7 +162,12 @@ constructor(
                 }
 
                 override fun onStateChanged(newState: Int) {
-                    _isOnKeyguard.value = newState == StatusBarState.KEYGUARD
+                    val onKeyguard = newState == StatusBarState.KEYGUARD
+                    _isOnKeyguard.value = onKeyguard
+                    if (onKeyguard) {
+                        autoDismissJobs["charging"]?.cancel()
+                        autoDismissJobs.remove("charging")
+                    }
                     updateChipVisibility()
                 }
 
@@ -226,8 +235,6 @@ constructor(
                     e.id !in dismissedEventIds &&
                         
                         !(onKeyguard && e is IslandEvent.Notification) &&
-                        
-                        !(onKeyguard && e is IslandEvent.Charging) &&
                         
                         !(onKeyguard && e is IslandEvent.AppSwitch) &&
                         
