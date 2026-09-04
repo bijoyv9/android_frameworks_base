@@ -4,6 +4,9 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -132,17 +135,50 @@ private fun AxDynamicBarChipContent(
             transitionControllerFactory = transitionControllerFactory,
         )
 
-    val motionScheme = MaterialTheme.motionScheme
+    val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
+    var isPressed by remember { mutableStateOf(false) }
+
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.90f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "chip_press_scale",
+    )
+
+    val expansionScale by animateFloatAsState(
+        targetValue = if (isExpanded) 0.92f else 1f,
+        animationSpec = spring(
+            dampingRatio = 0.58f,
+            stiffness = 380f,
+        ),
+        label = "chip_expansion_scale",
+    )
 
     AnimatedVisibility(
         visible = state != null && (ignoreKeyguard || !isOnKeyguard),
-        enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec()),
-        exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
+        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+            scaleIn(
+                initialScale = 0.75f,
+                animationSpec = spring(
+                    dampingRatio = 0.58f,
+                    stiffness = 380f,
+                ),
+            ),
+        exit = fadeOut(spring(stiffness = Spring.StiffnessMediumLow)) +
+            scaleOut(
+                targetScale = 0.75f,
+                animationSpec = spring(
+                    dampingRatio = 0.70f,
+                    stiffness = 500f,
+                ),
+            ),
         modifier = modifier
             .pointerInput(viewModel) {
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                    
+                    isPressed = true
                     val startX = down.position.x
                     val startY = down.position.y
                     var dragging = false
@@ -150,16 +186,15 @@ private fun AxDynamicBarChipContent(
                     var decided = false 
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull() ?: break
-                        if (!change.pressed) {
-                            
+                        val change = event.changes.firstOrNull()
+                        if (change == null || !change.pressed) {
+                            isPressed = false
                             if (dragging) {
-                                change.consume()
+                                change?.consume()
                                 if (totalDx > 0) viewModel.cyclePrev()
                                 else viewModel.cycleNext()
                             } else if (!decided) {
-
-                                change.consume()
+                                change?.consume()
                                 val current = state?.event
                                 if (current is IslandEvent.AospChip) {
                                     if (!viewModel.handleAospChipTap(current, expandableController.expandable)) {
@@ -169,21 +204,19 @@ private fun AxDynamicBarChipContent(
                                     viewModel.statusBarExpansion.toggle(boundsExpandable)
                                 }
                             }
-                            
                             break
                         }
                         val dx = change.position.x - startX
                         val dy = change.position.y - startY
                         if (!decided && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
                             if (abs(dx) >= abs(dy)) {
-                                
                                 decided = true
                                 dragging = true
                                 totalDx = dx
                                 change.consume()
                             } else {
-                                
                                 decided = true
+                                isPressed = false
                                 break
                             }
                         } else if (dragging) {
@@ -246,6 +279,10 @@ private fun AxDynamicBarChipContent(
                         modifier =
                             Modifier.height(ChipHeight)
                                 .widthIn(max = 100.dp)
+                                .graphicsLayer {
+                                    scaleX = pressScale * expansionScale
+                                    scaleY = pressScale * expansionScale
+                                }
                                 .then(chipVisibilityModifier)
                                 .clip(ChipShape)
                                 .background(accent)

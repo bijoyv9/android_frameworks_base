@@ -7,23 +7,19 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Looper
 import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.ViewConfiguration
-import android.view.ViewGroup
 import android.view.WindowManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,8 +42,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.android.systemui.animation.DialogTransitionAnimator
-import com.android.systemui.animation.Expandable
-import com.android.systemui.animation.R as AnimationR
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.axdynamicbar.shared.AxDynamicBarTheme
 import com.android.systemui.axdynamicbar.shared.ExpandedMaxWidth
@@ -76,6 +70,18 @@ private val PanelExpandedRadius = 28.dp
 private const val PanelCollapsedScaleX = 0.24f
 private const val PanelCollapsedScaleY = 0.16f
 
+private val BouncyOpenSpring =
+    spring<Float>(
+        dampingRatio = 0.58f,
+        stiffness = 380f,
+    )
+
+private val BouncyCloseSpring =
+    spring<Float>(
+        dampingRatio = 0.70f,
+        stiffness = 500f,
+    )
+
 @SysUISingleton
 class AxDynamicBarExpandedPanel
 @Inject
@@ -96,11 +102,11 @@ constructor(
         combine(viewModel.isExpanded, viewModel.isOnKeyguard) { expanded, onKeyguard ->
                 expanded && !onKeyguard
             }
-            .onEach { expanded ->
-                if (expanded) {
-                    showDialog(viewModel.statusBarExpansion.expandable.value)
-                } else {
-                    dismissDialog()
+            .onEach { shouldShow ->
+                if (shouldShow) {
+                    showDialog()
+                } else if (viewModel.isOnKeyguard.value) {
+                    dismissImmediately()
                 }
             }
             .launchIn(applicationScope)
@@ -110,7 +116,7 @@ constructor(
         if (Looper.myLooper() == Looper.getMainLooper()) action() else mainExecutor.execute(action)
     }
 
-    private fun showDialog(expandable: Expandable?) = ensureMainThread {
+    private fun showDialog() = ensureMainThread {
         if (currentDialog != null) return@ensureMainThread
 
         val dialog =
@@ -119,11 +125,14 @@ constructor(
                 dismissOnDeviceLock = true,
                 dialogDelegate = dialogDelegate(),
             ) {
-                ExpandedPanelDialogContent(viewModel)
+                ExpandedPanelDialogContent(
+                    viewModel = viewModel,
+                    onDismissComplete = { dismissImmediately() },
+                )
             }
 
         configureDialogWindow(dialog)
-        dialog.setCanceledOnTouchOutside(true)
+        dialog.setCanceledOnTouchOutside(false)
         dialog.setOnDismissListener {
             currentDialog = null
             if (viewModel.isExpanded.value) {
@@ -131,18 +140,13 @@ constructor(
             }
         }
         currentDialog = dialog
-
-        expandable?.dialogTransitionController()?.let { controller ->
-            dialogTransitionAnimator.show(dialog, controller, animateBackgroundBoundsChange = true)
-            installDialogOutsideTouchHandler(dialog)
-        }
-            ?: run {
-                dialog.show()
-                installDialogOutsideTouchHandler(dialog)
-            }
+        dialog.show()
     }
 
-    private fun dismissDialog() = ensureMainThread { currentDialog?.dismiss() }
+    private fun dismissImmediately() = ensureMainThread {
+        currentDialog?.dismiss()
+        currentDialog = null
+    }
 
     private fun setDialogFocusable(focusable: Boolean) = ensureMainThread {
         currentDialog?.window?.let { window ->
@@ -168,7 +172,7 @@ constructor(
                 WindowManager.LayoutParams.MATCH_PARENT
 
             override fun getHeight(dialog: SystemUIDialog): Int =
-                WindowManager.LayoutParams.WRAP_CONTENT
+                WindowManager.LayoutParams.MATCH_PARENT
         }
 
     private fun configureDialogWindow(dialog: SystemUIDialog) {
@@ -182,29 +186,27 @@ constructor(
         attributes.gravity = Gravity.TOP or Gravity.FILL_HORIZONTAL
         attributes.layoutInDisplayCutoutMode =
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        attributes.windowAnimations = 0
         window.attributes = attributes
-    }
-
-    private fun installDialogOutsideTouchHandler(dialog: SystemUIDialog) {
-        dialog.window?.decorView?.post {
-            val decor = dialog.window?.decorView as? ViewGroup ?: return@post
-            if (decor.childCount == 0) return@post
-            val background = decor.getChildAt(0) as? View ?: return@post
-            if (!background.hasDialogContentChild()) return@post
-            background.installExpandedPanelOutsideTouchHandler(viewModel)
-            (background as? ViewGroup)?.installExpandedPanelOutsideTouchChildren(viewModel)
-        }
     }
 }
 
 @Composable
-private fun ExpandedPanelDialogContent(viewModel: AxDynamicBarChipViewModel) {
-    AxDynamicBarTheme { ExpandedPanelDialogContentBody(viewModel) }
+private fun ExpandedPanelDialogContent(
+    viewModel: AxDynamicBarChipViewModel,
+    onDismissComplete: () -> Unit,
+) {
+    AxDynamicBarTheme {
+        ExpandedPanelDialogContentBody(viewModel, onDismissComplete)
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel) {
+private fun ExpandedPanelDialogContentBody(
+    viewModel: AxDynamicBarChipViewModel,
+    onDismissComplete: () -> Unit,
+) {
     val density = LocalDensity.current
     val rootView = LocalView.current
     val isLargeScreen = Utilities.isLargeScreen(LocalContext.current)
@@ -219,9 +221,12 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
     var rootBounds by remember { mutableStateOf<Rect?>(null) }
     var panelBounds by remember { mutableStateOf<Rect?>(null) }
     var panelHasScrollableOverflow by remember { mutableStateOf(false) }
-    val motionScheme = MaterialTheme.motionScheme
     val panelProgress = remember { Animatable(0f) }
     val bottomScrollPaddingPx = with(density) { ExpandedContentBottomScrollPadding.toPx() }
+
+    BackHandler(enabled = isExpanded) {
+        viewModel.statusBarExpansion.collapse()
+    }
 
     LaunchedEffect(chipState) {
         val filtered = chipState?.allEvents?.filter { it !is IslandEvent.AospChip }
@@ -231,18 +236,27 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
     }
 
     LaunchedEffect(isExpanded) {
-        panelProgress.animateTo(
-            if (isExpanded) 1f else 0f,
-            if (isExpanded) motionScheme.defaultSpatialSpec<Float>()
-            else motionScheme.fastSpatialSpec<Float>(),
-        )
+        if (isExpanded) {
+            panelProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = BouncyOpenSpring,
+            )
+        } else {
+            panelProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = BouncyCloseSpring,
+            )
+            onDismissComplete()
+        }
     }
 
     val originX = chipBounds?.centerXFraction ?: chipX
     val chipAlignment = BiasAlignment(horizontalBias = originX * 2f - 1f, verticalBias = -1f)
     val panelOriginX = panelTransformOriginX(chipBounds, panelBounds)
-    val progress = panelProgress.value.coerceIn(0f, 1f)
-    val panelRadius = PanelCollapsedRadius + (PanelExpandedRadius - PanelCollapsedRadius) * progress
+    val progress = panelProgress.value
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val panelRadius =
+        PanelCollapsedRadius + (PanelExpandedRadius - PanelCollapsedRadius) * clampedProgress
     val panelTapBounds =
         remember(panelBounds, panelHasScrollableOverflow, bottomScrollPaddingPx) {
             if (panelHasScrollableOverflow) {
@@ -252,10 +266,17 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
             }
         }
 
+    var lastValidEvents by remember { mutableStateOf<List<IslandEvent>>(emptyList()) }
+    val currentFiltered =
+        chipState?.allEvents?.filter { it !is IslandEvent.AospChip } ?: emptyList()
+    if (currentFiltered.isNotEmpty()) {
+        lastValidEvents = currentFiltered
+    }
+    val eventsToDisplay = if (currentFiltered.isNotEmpty()) currentFiltered else lastValidEvents
+
     Box(
         modifier =
-            Modifier.fillMaxWidth()
-                .wrapContentHeight()
+            Modifier.fillMaxSize()
                 .onGloballyPositioned { rootBounds = it.screenBounds(rootView) }
                 .pointerInput(chipBounds, panelTapBounds, rootBounds, viewModel) {
                     val slop = viewConfiguration.touchSlop
@@ -318,125 +339,46 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
                 .padding(top = topPad, bottom = 8.dp),
         contentAlignment = chipAlignment,
     ) {
-        chipState?.let { state ->
-            val filtered = state.allEvents.filter { it !is IslandEvent.AospChip }
-            if (filtered.isEmpty()) return@let
+        if (eventsToDisplay.isNotEmpty()) {
+            val state = chipState
             val pinnedEventId =
-                filtered.firstOrNull { it.id == state.event.id }?.id ?: filtered.first().id
+                state?.event?.id?.takeIf { id -> eventsToDisplay.any { it.id == id } }
+                    ?: eventsToDisplay.first().id
             Box(
                 modifier =
                     Modifier.widthIn(max = ExpandedMaxWidth)
                         .onGloballyPositioned { panelBounds = it.screenBounds(rootView) }
                         .graphicsLayer {
-                            alpha = progress
-                            scaleX = PanelCollapsedScaleX + (1f - PanelCollapsedScaleX) * progress
-                            scaleY = PanelCollapsedScaleY + (1f - PanelCollapsedScaleY) * progress
+                            val scale = progress.coerceAtLeast(0f)
+                            scaleX = PanelCollapsedScaleX + (1f - PanelCollapsedScaleX) * scale
+                            scaleY = PanelCollapsedScaleY + (1f - PanelCollapsedScaleY) * scale
+                            translationY = (1f - scale) * -16.dp.toPx()
+                            alpha =
+                                if (isExpanded) (progress * 2.5f).coerceIn(0f, 1f)
+                                else (progress * 1.6f).coerceIn(0f, 1f)
                             transformOrigin = TransformOrigin(panelOriginX, 0f)
                         }
                         .clip(RoundedCornerShape(panelRadius))
             ) {
-                ExpandedIslandContent(
-                    events = filtered,
-                    interactor = viewModel.interactor,
-                    onCollapse = { viewModel.statusBarExpansion.collapse() },
-                    onScrollableOverflowChanged = { panelHasScrollableOverflow = it },
-                    pinnedEventId = pinnedEventId,
-                    hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
-                )
-            }
-        }
-    }
-}
-
-private class ExpandedPanelOutsideTouchHandler(private val viewModel: AxDynamicBarChipViewModel) :
-    View.OnTouchListener {
-    private var downRawX = 0f
-    private var downRawY = 0f
-    private var horizontalChipDrag = false
-    private var tracking = false
-
-    override fun onTouch(view: View, event: MotionEvent): Boolean {
-        val slop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
-        return when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                tracking = false
-                horizontalChipDrag = false
-                if (view.isInsideDialogContent(event.x, event.y)) return false
-                if (
-                    !viewModel.chipBounds.value.containsWithPadding(
-                        event.rawX,
-                        event.rawY,
-                        slop * 2f,
-                    )
+                Box(
+                    modifier =
+                        Modifier.graphicsLayer {
+                            alpha = ((progress - 0.2f) / 0.8f).coerceIn(0f, 1f)
+                        }
                 ) {
-                    return false
+                    ExpandedIslandContent(
+                        events = eventsToDisplay,
+                        interactor = viewModel.interactor,
+                        onCollapse = { viewModel.statusBarExpansion.collapse() },
+                        onScrollableOverflowChanged = { panelHasScrollableOverflow = it },
+                        pinnedEventId = pinnedEventId,
+                        hapticsViewModelFactory =
+                            viewModel.interactor.sliderHapticsViewModelFactory,
+                    )
                 }
-                downRawX = event.rawX
-                downRawY = event.rawY
-                tracking = true
-                true
             }
-            MotionEvent.ACTION_MOVE -> {
-                if (!tracking) return false
-                if (!horizontalChipDrag) {
-                    val dx = event.rawX - downRawX
-                    val dy = event.rawY - downRawY
-                    if (abs(dx) > slop || abs(dy) > slop) {
-                        horizontalChipDrag = abs(dx) >= abs(dy)
-                    }
-                }
-                true
-            }
-            MotionEvent.ACTION_UP -> {
-                if (!tracking) return false
-                val dx = event.rawX - downRawX
-                val dy = event.rawY - downRawY
-                tracking = false
-                viewModel.handleChipRelease(dx, dy, slop, horizontalChipDrag)
-                true
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                val wasTracking = tracking
-                tracking = false
-                wasTracking
-            }
-            else -> tracking
         }
     }
-}
-
-private fun View.installExpandedPanelOutsideTouchHandler(viewModel: AxDynamicBarChipViewModel) {
-    setOnClickListener { viewModel.statusBarExpansion.collapse() }
-    setOnTouchListener(ExpandedPanelOutsideTouchHandler(viewModel))
-}
-
-private fun ViewGroup.installExpandedPanelOutsideTouchChildren(
-    viewModel: AxDynamicBarChipViewModel
-) {
-    for (i in 0 until childCount) {
-        val child = getChildAt(i)
-        if (child.getTag(AnimationR.id.tag_dialog_background) != true) {
-            child.installExpandedPanelOutsideTouchHandler(viewModel)
-        }
-    }
-}
-
-private fun View.hasDialogContentChild(): Boolean {
-    return dialogContentChild() != null
-}
-
-private fun View.isInsideDialogContent(x: Float, y: Float): Boolean {
-    val child = dialogContentChild() ?: return false
-    return x >= child.left && x <= child.right && y >= child.top && y <= child.bottom
-}
-
-private fun View.dialogContentChild(): View? {
-    val group = this as? ViewGroup ?: return null
-    for (i in 0 until group.childCount) {
-        val child = group.getChildAt(i)
-        if (child.getTag(AnimationR.id.tag_dialog_background) == true) return child
-    }
-    return null
 }
 
 private fun AxDynamicBarChipBounds?.containsWithPadding(

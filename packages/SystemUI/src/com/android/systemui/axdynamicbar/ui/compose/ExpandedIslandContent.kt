@@ -1,6 +1,7 @@
 package com.android.systemui.axdynamicbar.ui.compose
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -111,8 +112,8 @@ fun ExpandedIslandContent(
 
     val expandedGroups = remember(expandedFilter) { mutableStateMapOf<String, Boolean>() }
     val motionScheme = MaterialTheme.motionScheme
-    val itemFadeInSpec = motionScheme.defaultEffectsSpec<Float>()
-    val itemPlacementSpec = motionScheme.defaultSpatialSpec<IntOffset>()
+    val itemFadeInSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 450f)
+    val itemPlacementSpec = spring<IntOffset>(dampingRatio = 0.65f, stiffness = 450f)
     val itemFadeOutSpec = motionScheme.fastEffectsSpec<Float>()
     val listState = rememberLazyListState()
     val hasScrollableOverflow =
