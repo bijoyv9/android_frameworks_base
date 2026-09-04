@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import com.android.internal.policy.SystemBarUtils
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,16 +71,16 @@ private val PanelExpandedRadius = 28.dp
 private const val PanelCollapsedScaleX = 0.24f
 private const val PanelCollapsedScaleY = 0.16f
 
-private val BouncyOpenSpring =
+private val FluidOpenSpring =
     spring<Float>(
-        dampingRatio = 0.58f,
-        stiffness = 380f,
+        dampingRatio = 0.78f,
+        stiffness = 340f,
     )
 
-private val BouncyCloseSpring =
+private val FluidCloseSpring =
     spring<Float>(
-        dampingRatio = 0.70f,
-        stiffness = 500f,
+        dampingRatio = 0.85f,
+        stiffness = 450f,
     )
 
 @SysUISingleton
@@ -209,15 +210,19 @@ private fun ExpandedPanelDialogContentBody(
 ) {
     val density = LocalDensity.current
     val rootView = LocalView.current
-    val isLargeScreen = Utilities.isLargeScreen(LocalContext.current)
-    val topPad =
-        with(density) { WindowInsets.statusBars.getTop(this).toDp() } +
-            4.dp +
-            if (isLargeScreen) 4.dp else 0.dp
+    val context = LocalContext.current
+    val isLargeScreen = Utilities.isLargeScreen(context)
+    val chipBounds by viewModel.chipBounds.collectAsStateWithLifecycle()
+    val statusBarHeightPx = remember(context) {
+        SystemBarUtils.getStatusBarHeight(context)
+    }
+    val statusBarHeightDp = with(density) { statusBarHeightPx.toDp() }
+    val chipBottomDp = chipBounds?.let { with(density) { it.bottom.toDp() } }
+    val topSpacing = 10.dp + if (isLargeScreen) 6.dp else 0.dp
+    val topPad = maxOf(statusBarHeightDp, chipBottomDp ?: 0.dp) + topSpacing
     val chipState by viewModel.chipState.collectAsStateWithLifecycle()
     val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
     val chipX by viewModel.chipCenterXFraction.collectAsStateWithLifecycle()
-    val chipBounds by viewModel.chipBounds.collectAsStateWithLifecycle()
     var rootBounds by remember { mutableStateOf<Rect?>(null) }
     var panelBounds by remember { mutableStateOf<Rect?>(null) }
     var panelHasScrollableOverflow by remember { mutableStateOf(false) }
@@ -239,12 +244,12 @@ private fun ExpandedPanelDialogContentBody(
         if (isExpanded) {
             panelProgress.animateTo(
                 targetValue = 1f,
-                animationSpec = BouncyOpenSpring,
+                animationSpec = FluidOpenSpring,
             )
         } else {
             panelProgress.animateTo(
                 targetValue = 0f,
-                animationSpec = BouncyCloseSpring,
+                animationSpec = FluidCloseSpring,
             )
             onDismissComplete()
         }
@@ -252,7 +257,6 @@ private fun ExpandedPanelDialogContentBody(
 
     val originX = chipBounds?.centerXFraction ?: chipX
     val chipAlignment = BiasAlignment(horizontalBias = originX * 2f - 1f, verticalBias = -1f)
-    val panelOriginX = panelTransformOriginX(chipBounds, panelBounds)
     val progress = panelProgress.value
     val clampedProgress = progress.coerceIn(0f, 1f)
     val panelRadius =
@@ -344,19 +348,57 @@ private fun ExpandedPanelDialogContentBody(
             val pinnedEventId =
                 state?.event?.id?.takeIf { id -> eventsToDisplay.any { it.id == id } }
                     ?: eventsToDisplay.first().id
+
+            val chipCenter = chipBounds?.let { (it.left + it.right) / 2f }
+            val panelCenter = panelBounds?.let { (it.left + it.right) / 2f }
+            val chipTop = chipBounds?.top?.toFloat()
+            val panelTop = panelBounds?.top?.toFloat()
+
+            val chipW = chipBounds?.let { (it.right - it.left).toFloat() } ?: 0f
+            val chipH = chipBounds?.let { (it.bottom - it.top).toFloat() } ?: 0f
+            val panelW = panelBounds?.width()?.toFloat() ?: 0f
+            val panelH = panelBounds?.height()?.toFloat() ?: 0f
+
+            val startScaleX = if (panelW > 0f && chipW > 0f) {
+                (chipW / panelW).coerceIn(0.18f, 0.45f)
+            } else {
+                PanelCollapsedScaleX
+            }
+
+            val startScaleY = if (panelH > 0f && chipH > 0f) {
+                (chipH / panelH).coerceIn(0.06f, 0.20f)
+            } else {
+                PanelCollapsedScaleY
+            }
+
+            val startDeltaX = if (chipCenter != null && panelCenter != null) {
+                chipCenter - panelCenter
+            } else {
+                0f
+            }
+
+            val startDeltaY = if (chipTop != null && panelTop != null) {
+                chipTop - panelTop
+            } else {
+                -with(density) { (topSpacing + statusBarHeightDp * 0.5f).toPx() }
+            }
+
             Box(
                 modifier =
                     Modifier.widthIn(max = ExpandedMaxWidth)
                         .onGloballyPositioned { panelBounds = it.screenBounds(rootView) }
                         .graphicsLayer {
-                            val scale = progress.coerceAtLeast(0f)
-                            scaleX = PanelCollapsedScaleX + (1f - PanelCollapsedScaleX) * scale
-                            scaleY = PanelCollapsedScaleY + (1f - PanelCollapsedScaleY) * scale
-                            translationY = (1f - scale) * -16.dp.toPx()
+                            val morphProgress = progress.coerceIn(0f, 1f)
+                            val sX = startScaleX + (1f - startScaleX) * morphProgress
+                            val sY = startScaleY + (1f - startScaleY) * morphProgress
+                            scaleX = sX.coerceAtLeast(0.01f)
+                            scaleY = sY.coerceAtLeast(0.01f)
+                            translationX = (1f - morphProgress) * startDeltaX
+                            translationY = (1f - morphProgress) * startDeltaY
                             alpha =
-                                if (isExpanded) (progress * 2.5f).coerceIn(0f, 1f)
-                                else (progress * 1.6f).coerceIn(0f, 1f)
-                            transformOrigin = TransformOrigin(panelOriginX, 0f)
+                                if (isExpanded) (progress * 3.0f).coerceIn(0f, 1f)
+                                else (progress * 2.0f).coerceIn(0f, 1f)
+                            transformOrigin = TransformOrigin(0.5f, 0f)
                         }
                         .clip(RoundedCornerShape(panelRadius))
             ) {
@@ -374,6 +416,7 @@ private fun ExpandedPanelDialogContentBody(
                         pinnedEventId = pinnedEventId,
                         hapticsViewModelFactory =
                             viewModel.interactor.sliderHapticsViewModelFactory,
+                        expansionProgress = progress,
                     )
                 }
             }
@@ -403,12 +446,6 @@ private fun Rect?.withoutBottomPadding(padding: Float): Rect? =
     this?.let {
         Rect(it.left, it.top, it.right, (it.bottom - padding.toInt()).coerceAtLeast(it.top))
     }
-
-private fun panelTransformOriginX(chipBounds: AxDynamicBarChipBounds?, panelBounds: Rect?): Float {
-    if (chipBounds == null || panelBounds == null || panelBounds.width() <= 0) return 0.5f
-    val chipCenter = (chipBounds.left + chipBounds.right) / 2f
-    return ((chipCenter - panelBounds.left) / panelBounds.width()).coerceIn(0f, 1f)
-}
 
 private fun AxDynamicBarChipViewModel.handleChipRelease(
     dx: Float,

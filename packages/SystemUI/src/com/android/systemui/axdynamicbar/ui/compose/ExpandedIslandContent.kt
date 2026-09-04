@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -59,6 +61,7 @@ fun ExpandedIslandContent(
     expandedFilter: String? = null,
     pinnedEventId: String? = null,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+    expansionProgress: Float = 1f,
 ) {
     if (events.isEmpty()) return
 
@@ -138,17 +141,34 @@ fun ExpandedIslandContent(
             ),
     ) {
         if (isNotificationFilter && notifGroups.isNotEmpty()) {
-            notifGroups.forEach { group ->
+            notifGroups.forEachIndexed { index, group ->
+                val isSecondary = index > 0
+                val cardDelay = if (isSecondary) (0.35f + (index - 1) * 0.08f) else 0.15f
+                val cardProgress = ((expansionProgress - cardDelay) / (1f - cardDelay).coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+                val secondaryModifier = if (isSecondary) {
+                    Modifier.graphicsLayer {
+                        alpha = cardProgress
+                        translationY = (1f - cardProgress) * 24.dp.toPx()
+                        val s = 0.93f + 0.07f * cardProgress
+                        scaleX = s
+                        scaleY = s
+                    }
+                } else {
+                    Modifier
+                }
+
                 if (group.size == 1) {
                     val event = group.first()
                     item(key = event.id) {
                         MagneticSwipeToDismiss(
                             onDismiss = { interactor.dismissEvent(event) },
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = itemFadeInSpec,
-                                placementSpec = itemPlacementSpec,
-                                fadeOutSpec = itemFadeOutSpec,
-                            ),
+                            modifier = Modifier
+                                .then(secondaryModifier)
+                                .animateItem(
+                                    fadeInSpec = itemFadeInSpec,
+                                    placementSpec = itemPlacementSpec,
+                                    fadeOutSpec = itemFadeOutSpec,
+                                ),
                         ) {
                             PrimaryCard { NotificationExpanded(event, interactor) }
                         }
@@ -159,11 +179,13 @@ fun ExpandedIslandContent(
                     item(key = "group_$pkg") {
                         MagneticSwipeToDismiss(
                             onDismiss = { group.forEach { interactor.dismissEvent(it) } },
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = itemFadeInSpec,
-                                placementSpec = itemPlacementSpec,
-                                fadeOutSpec = itemFadeOutSpec,
-                            ),
+                            modifier = Modifier
+                                .then(secondaryModifier)
+                                .animateItem(
+                                    fadeInSpec = itemFadeInSpec,
+                                    placementSpec = itemPlacementSpec,
+                                    fadeOutSpec = itemFadeOutSpec,
+                                ),
                         ) {
                             PrimaryCard {
                                 NotificationGroupCard(
@@ -178,14 +200,31 @@ fun ExpandedIslandContent(
                 }
             }
         } else {
-            items(filteredEvents, key = { it.id }) { event ->
+            itemsIndexed(filteredEvents, key = { _, event -> event.id }) { index, event ->
+                val isSecondary = index > 0
+                val cardDelay = if (isSecondary) (0.35f + (index - 1) * 0.08f) else 0.15f
+                val cardProgress = ((expansionProgress - cardDelay) / (1f - cardDelay).coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+                val secondaryModifier = if (isSecondary) {
+                    Modifier.graphicsLayer {
+                        alpha = cardProgress
+                        translationY = (1f - cardProgress) * 24.dp.toPx()
+                        val s = 0.93f + 0.07f * cardProgress
+                        scaleX = s
+                        scaleY = s
+                    }
+                } else {
+                    Modifier
+                }
+
                 MagneticSwipeToDismiss(
                     onDismiss = { interactor.dismissEvent(event) },
-                    modifier = Modifier.animateItem(
-                        fadeInSpec = itemFadeInSpec,
-                        placementSpec = itemPlacementSpec,
-                        fadeOutSpec = itemFadeOutSpec,
-                    ),
+                    modifier = Modifier
+                        .then(secondaryModifier)
+                        .animateItem(
+                            fadeInSpec = itemFadeInSpec,
+                            placementSpec = itemPlacementSpec,
+                            fadeOutSpec = itemFadeOutSpec,
+                        ),
                 ) {
                     if (event is IslandEvent.Media) {
                         MediaCard(event, interactor)

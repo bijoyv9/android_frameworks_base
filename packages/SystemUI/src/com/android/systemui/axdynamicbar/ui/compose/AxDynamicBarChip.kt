@@ -148,12 +148,20 @@ private fun AxDynamicBarChipContent(
     )
 
     val expansionScale by animateFloatAsState(
-        targetValue = if (isExpanded) 0.92f else 1f,
+        targetValue = if (isExpanded) 0.82f else 1f,
         animationSpec = spring(
-            dampingRatio = 0.58f,
-            stiffness = 380f,
+            dampingRatio = 0.78f,
+            stiffness = 340f,
         ),
         label = "chip_expansion_scale",
+    )
+    val expansionAlpha by animateFloatAsState(
+        targetValue = if (isExpanded) 0f else 1f,
+        animationSpec = spring(
+            dampingRatio = 0.85f,
+            stiffness = 450f,
+        ),
+        label = "chip_expansion_alpha",
     )
 
     AnimatedVisibility(
@@ -162,16 +170,16 @@ private fun AxDynamicBarChipContent(
             scaleIn(
                 initialScale = 0.75f,
                 animationSpec = spring(
-                    dampingRatio = 0.58f,
-                    stiffness = 380f,
+                    dampingRatio = 0.78f,
+                    stiffness = 340f,
                 ),
             ),
         exit = fadeOut(spring(stiffness = Spring.StiffnessMediumLow)) +
             scaleOut(
                 targetScale = 0.75f,
                 animationSpec = spring(
-                    dampingRatio = 0.70f,
-                    stiffness = 500f,
+                    dampingRatio = 0.85f,
+                    stiffness = 450f,
                 ),
             ),
         modifier = modifier
@@ -282,6 +290,7 @@ private fun AxDynamicBarChipContent(
                                 .graphicsLayer {
                                     scaleX = pressScale * expansionScale
                                     scaleY = pressScale * expansionScale
+                                    alpha = expansionAlpha
                                 }
                                 .then(chipVisibilityModifier)
                                 .clip(ChipShape)
