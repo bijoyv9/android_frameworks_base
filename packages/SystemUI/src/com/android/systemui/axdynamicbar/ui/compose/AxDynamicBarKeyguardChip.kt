@@ -93,13 +93,18 @@ import com.android.systemui.axdynamicbar.model.RecordingState
 import com.android.systemui.axdynamicbar.shared.*
 import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.axdynamicbar.ui.KeyguardBatteryInfo
-import com.android.axion.blur.AxBlurLifecycle
-import com.android.axion.blur.AxBlurSurface
+import android.content.Context
+import android.content.res.Configuration
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.view.View
+import androidx.compose.ui.viewinterop.AndroidView
+import com.android.axion.blur.BlurEngine
+import com.android.systemui.common.shared.colors.SurfaceEffectColors
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.chips.StatusBarChipsReturnAnimations
 import kotlinx.coroutines.delay
-import android.content.Context
-import android.graphics.drawable.Drawable
 import java.util.Calendar
 
 private val NowBarHeight = 48.dp
@@ -121,15 +126,70 @@ private fun rememberChargingParts(batteryString: String): List<String> {
     }
 }
 
+/**
+ * Native blur host view embedded in Compose via AndroidView.
+ *
+ * Inspired by Lunaris AOSP's MusicPillBlurHost.
+ * Original implementation by Ghosuto <clash.raja10@gmail.com>.
+ * Adapted for AxionOS BlurEngine and frosted surface treatment.
+ */
+private class LockscreenChipBlurHost(context: Context) : View(context) {
+    private val blur = BlurEngine(this).apply { setEnabled(true) }
+    private var overlayColor = SurfaceEffectColors.surfaceEffect1(context)
+    private val bgDrawable = GradientDrawable().apply {
+        setColor(0x00000000)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        updateColors()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateColors()
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        blur.onVisibilityAggregated(isVisible)
+        if (isVisible) {
+            updateColors()
+        }
+    }
+
+    override fun verifyDrawable(who: Drawable): Boolean =
+        blur.verifyDrawable(who) || super.verifyDrawable(who)
+
+    private fun updateColors() {
+        overlayColor = SurfaceEffectColors.surfaceEffect1(context)
+        blur.setOverlayColor(overlayColor)
+        invalidate()
+    }
+
+    override fun draw(canvas: Canvas) {
+        if (width > 0 && height > 0) {
+            val radius = height * 0.5f
+            blur.setOverlayColor(overlayColor)
+            if (!blur.draw(canvas, 0, 0, width, height, radius, 255)) {
+                bgDrawable.setBounds(0, 0, width, height)
+                bgDrawable.cornerRadius = radius
+                bgDrawable.setColor(overlayColor and 0x00FFFFFF or (0x66 shl 24))
+                bgDrawable.draw(canvas)
+                bgDrawable.setColor(0x00000000)
+            }
+        }
+        super.draw(canvas)
+    }
+}
+
 @Composable
 fun AxDynamicBarKeyguardChip(
     viewModel: AxDynamicBarChipViewModel,
     modifier: Modifier = Modifier,
 ) {
     AxDynamicBarTheme {
-        AxBlurLifecycle(enabled = true) {
-            AxDynamicBarKeyguardChipContent(viewModel, modifier)
-        }
+        AxDynamicBarKeyguardChipContent(viewModel, modifier)
     }
 }
 
@@ -337,7 +397,17 @@ private fun KeyguardChipBody(
     val isInteractive = event !is IslandEvent.KeyguardIndication && event !is IslandEvent.AppSwitch
 
     Box(contentAlignment = Alignment.Center) {
-        AxBlurSurface(
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(NowBarShape),
+        ) {
+            AndroidView(
+                factory = { ctx -> LockscreenChipBlurHost(ctx) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Row(
             modifier = Modifier
                 .height(NowBarHeight)
                 .widthIn(min = 100.dp, max = 340.dp)
@@ -367,23 +437,15 @@ private fun KeyguardChipBody(
 
                         else -> viewModel.keyguardExpansion.toggle()
                     }
-                },
-            shape = NowBarShape,
-            cornerRadius = NowBarHeight / 2,
-            surfaceColor = Color.Transparent,
-            contentAlignment = Alignment.Center,
+                }
+                .then(
+                    if (accent != Color.Unspecified && accent.alpha > 0f) {
+                        Modifier.background(accent.copy(alpha = 0.08f))
+                    } else Modifier
+                )
+                .padding(start = 7.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .then(
-                        if (accent != Color.Unspecified && accent.alpha > 0f) {
-                            Modifier.background(accent.copy(alpha = 0.08f))
-                        } else Modifier
-                    )
-                    .padding(start = 7.dp, end = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
                 if (event is IslandEvent.Media) {
                     MediaNowBarContent(
                         event = event,
@@ -411,7 +473,6 @@ private fun KeyguardChipBody(
             }
         }
     }
-}
 
 @Composable
 private fun RowScope.MediaNowBarContent(
@@ -708,7 +769,17 @@ private fun KeyguardBatteryChip(
     val isCharging = info.isCharging
 
     Box(contentAlignment = Alignment.Center) {
-        AxBlurSurface(
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(NowBarShape),
+        ) {
+            AndroidView(
+                factory = { ctx -> LockscreenChipBlurHost(ctx) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Row(
             modifier = modifier
                 .height(NowBarHeight)
                 .widthIn(min = 100.dp, max = 320.dp)
@@ -725,19 +796,11 @@ private fun KeyguardBatteryChip(
                             drawRect(iconTint.copy(alpha = 0.85f), Offset(0f, y), Size(size.width * (info.level / 100f).coerceIn(0f, 1f), barH))
                         }
                     } else Modifier
-                ),
-            shape = NowBarShape,
-            cornerRadius = NowBarHeight / 2,
-            surfaceColor = Color.Transparent,
-            contentAlignment = Alignment.Center,
+                )
+                .background(iconTint.copy(alpha = 0.08f))
+                .padding(start = 7.dp, end = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .background(iconTint.copy(alpha = 0.08f))
-                    .padding(start = 7.dp, end = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
                 Box(
                     modifier = Modifier
                         .size(NowBarIconContainerSize)
@@ -813,7 +876,6 @@ private fun KeyguardBatteryChip(
             }
         }
     }
-}
 
 @Composable
 private fun AnimatedChargingBoltIcon(color: Color, iconSize: Dp = BatteryIconSize) {
